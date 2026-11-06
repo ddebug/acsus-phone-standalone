@@ -1,0 +1,14 @@
+@import url('./toolkit/phone/assets/phone.css');
+
+#acsus-phone-standalone-settings { margin: 8px 0; padding: 10px; border: 1px solid var(--SmartThemeBorderColor, #65758b); border-radius: 10px; }
+#acsus-phone-standalone-settings > summary { cursor: pointer; font-weight: 600; }
+#acsus-phone-standalone-settings .standalone-phone-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; align-items: center; }
+#acsus-phone-standalone-settings .standalone-phone-note { font-size: .85em; opacity: .85; line-height: 1.55; }
+#acsus-phone-standalone-settings [data-role="storage-status"] { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+#acsus-phone-standalone-settings [data-role="storage-status"][data-error="true"] { color: #ff9189; }
+#acsus-phone-standalone-settings input[type="file"] { max-width: 100%; }
+#acsus-phone-standalone-settings button { padding: 6px 10px; border: 1px solid currentColor; border-radius: 6px; cursor: pointer; background: transparent; color: inherit; }
+#acsus-phone-standalone-settings button:disabled { opacity: .45; cursor: not-allowed; }
+#acsus-phone-standalone-settings label { display: inline-flex; gap: 6px; align-items: center; }
+#acsus-phone-standalone-settings.standalone-phone-floating { position: fixed; z-index: 99999; right: 12px; bottom: 12px; max-width: min(440px, calc(100vw - 24px)); background: #243044; color: white; box-shadow: 0 4px 18px #0006; }
+.standalone-phone-safety-banner { position: fixed; z-index: 2147483646; left: 12px; right: 12px; top: 12px; padding: 12px; border: 1px solid #ff9189; border-radius: 8px; background: #381c23; color: #fff; font-size: 14px; line-height: 1.5; }

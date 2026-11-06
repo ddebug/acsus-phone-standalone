@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+coverage/
+artifacts/
+.runtime/
+*.zip
+settings.json
+secrets.json
+*backup*.json
+*before-import*.json
+!docs/upstream-snapshot.json

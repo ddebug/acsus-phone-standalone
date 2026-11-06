@@ -1,0 +1,14 @@
+{
+  "name": "acsus-phone-standalone",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Source-only standalone extraction of the authorized Acsus phone module for SillyTavern/TauriTavern",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "check": "node --experimental-vm-modules scripts/check.mjs",
+    "test": "node --experimental-vm-modules --test tests/*.test.mjs",
+    "test:browser": "node scripts/browser-fixture.mjs"
+  }
+}

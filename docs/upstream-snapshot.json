@@ -1,0 +1,487 @@
+{
+  "upstream": "https://github.com/Hmkovo/Acsus-Paws-Puffs",
+  "upstreamVersion": "2.0.0",
+  "note": "Source-only snapshot of the phone module and its shared API dependencies. No user settings, chats, credentials, or git history are included. Upstream rights and notices are retained.",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "9303616196b9722b7aca6eb2b54fbf1a7ae0168fc04743e7097967f2569b1987"
+    },
+    {
+      "path": "logger.js",
+      "sha256": "74dc62a7950a97b262c39b2e1ca8b3c71ec254ff796b13b2ac83d109e6eb98fa"
+    },
+    {
+      "path": "shared/api/api-client.js",
+      "sha256": "7dda3fcc08c7e944b9fb8b06f9df520593e89004b7b87f1a5d680b09bfb53a36"
+    },
+    {
+      "path": "shared/api/api-config-schema.js",
+      "sha256": "3d890aa4cf059f41981b8068086d3f820f40fb06ff0ce22ad9b92d7a8be0c923"
+    },
+    {
+      "path": "shared/api/api-errors.js",
+      "sha256": "61bf4ee6445682f752143775ea42442ecb74ccdb2f36fc068da27934224950e6"
+    },
+    {
+      "path": "shared/api/api-model-refresh.js",
+      "sha256": "65e8dbff59b4e752554771a1fc9593e8275383eda527768bd3f51293f202cc19"
+    },
+    {
+      "path": "shared/api/api-params-config.js",
+      "sha256": "1d2d51188cb616a2a4c9cb4feeca0dae000f618c827bcc9dad64fd65f90c2afc"
+    },
+    {
+      "path": "shared/api/api-request-builder.js",
+      "sha256": "0f9bfc1ff9a678abba2047b45d53b34b151e89f13541b3946fd83da399a16217"
+    },
+    {
+      "path": "toolkit/phone/ai-integration/ai-context-builder.js",
+      "sha256": "90870c7d2282ebe5b1b58b586d8814a51c5995dd0d9829204a310a80f0aa1d99"
+    },
+    {
+      "path": "toolkit/phone/ai-integration/ai-response-parser.js",
+      "sha256": "2d946f7f749bed7ed6d6e03e9e6ebcb04501db4286cd2b3be32c6dd9e7f58a6b"
+    },
+    {
+      "path": "toolkit/phone/ai-integration/ai-send-controller.js",
+      "sha256": "9bf50a900f3c6911bea796f7fda693085b58b679dcd451f259050670ea522a37"
+    },
+    {
+      "path": "toolkit/phone/ai-integration/ai-tool-calling.js",
+      "sha256": "637a1d9c29a19378fe67ec51df591c0e3f74b22acd2e7565828f2a688f3f8c17"
+    },
+    {
+      "path": "toolkit/phone/ai-integration/pending-operations.js",
+      "sha256": "867fecac1b745720bd879c85a1b5481a10ff6c480205aeb094dc16ca6413e263"
+    },
+    {
+      "path": "toolkit/phone/ai-integration/phone-api-settings.js",
+      "sha256": "158fc9b5782e417dc34c8ba4a5c1a7b04fef5e559ac91c1e793dfd5c3b3c9715"
+    },
+    {
+      "path": "toolkit/phone/assets/phone.css",
+      "sha256": "5d90b03e4b6c6c78b464ba7f0495ba071558f423873bece520dbe03e57b11bc3"
+    },
+    {
+      "path": "toolkit/phone/contacts/contact-group-manage-ui.js",
+      "sha256": "1f37139382934a23d2ffa6952cab365d388aa51de136d9fb04112a6b59fad1e3"
+    },
+    {
+      "path": "toolkit/phone/contacts/contact-list-data.js",
+      "sha256": "b2b25ac4753ea323c10292d5dafd9b562c594001f5af5388c23783acb9ef7492"
+    },
+    {
+      "path": "toolkit/phone/contacts/contact-list-ui.js",
+      "sha256": "0691e18d183d234d1910019614067c0192f99eea6a004c79eb01def1689a9f77"
+    },
+    {
+      "path": "toolkit/phone/contacts/contact-profile-ui.js",
+      "sha256": "b2b514aecb8cea929f5264c06183dafdeaecbdf0eb61f49c256f5d89abf7bcbe"
+    },
+    {
+      "path": "toolkit/phone/contacts/contact-settings-ui.js",
+      "sha256": "f22807fe06a93a45ccfff92628032b140e4d8cec405e5ed636702ac1210c6e5d"
+    },
+    {
+      "path": "toolkit/phone/contacts/contact-sync-tavern.js",
+      "sha256": "16fe91ecd532e56cf6cecf3e865435203dab2e44f581fd14660ab8129a813d67"
+    },
+    {
+      "path": "toolkit/phone/contacts/contact-transactions-ui.js",
+      "sha256": "7146ce1c79b038b045599bdcec1f67e3cefcfea2fbd38e5a7c81721e0274fadf"
+    },
+    {
+      "path": "toolkit/phone/contacts/friend-request-detail-ui.js",
+      "sha256": "4b0cdd179a87423b01e034723f8d564986c0492c4f598e934a2e37d4c33dbc45"
+    },
+    {
+      "path": "toolkit/phone/customization/character-customization-ui.js",
+      "sha256": "fa44b22f09ae556d7eee278130e853887361475efe1b1eb059998694c8a1d77b"
+    },
+    {
+      "path": "toolkit/phone/customization/customization-apply.js",
+      "sha256": "96cf006b0b09818eee55527155907c21b512df83c916fdba8984cf6491d0cb9a"
+    },
+    {
+      "path": "toolkit/phone/customization/customization-config.js",
+      "sha256": "87b4e14b62bd8d9645df1a050dc0dba8f3a5cc167a8e4f94e0368efb281c131d"
+    },
+    {
+      "path": "toolkit/phone/customization/customization-pricing.js",
+      "sha256": "43cbd9dbb26b210f7573f47604107320bae7f7c1f7ce4070e13540876890eef1"
+    },
+    {
+      "path": "toolkit/phone/customization/customization-purchase.js",
+      "sha256": "bc9f2def40ea450806614f0ca90a4f5f180e47a0aade1216930895ce727d8bcb"
+    },
+    {
+      "path": "toolkit/phone/customization/customization-ui.js",
+      "sha256": "6f602cf908a523a332796e8eddc332785c0a27d08023b9b02c2d1970e938d8b9"
+    },
+    {
+      "path": "toolkit/phone/data-storage/storage-api.js",
+      "sha256": "ae9ccb67937e74f5bb4c1c25218b41b76c922df8d6e0efe2cbe3896a33dd6af4"
+    },
+    {
+      "path": "toolkit/phone/data-storage/storage-membership.js",
+      "sha256": "1be7fcd1f84412aa569e88c2d16caaedf70279fb495f756947cb92560bd2ca3b"
+    },
+    {
+      "path": "toolkit/phone/data-storage/storage-regex.js",
+      "sha256": "199528a286f2ceae611ef8c3d478042a01f7e8724129267a43e19de61411bb45"
+    },
+    {
+      "path": "toolkit/phone/data-storage/storage-wallet.js",
+      "sha256": "abc8ebcc3e154c0a10dc835d4e58ba27c7122e370ade2e9e9014cb9bf2d04b88"
+    },
+    {
+      "path": "toolkit/phone/emojis/emoji-manager-data.js",
+      "sha256": "1681ca94fc53397e4d12457c6a5586e82403a08c4d6e9f3218c7d8a467bbec49"
+    },
+    {
+      "path": "toolkit/phone/emojis/emoji-manager-ui.js",
+      "sha256": "55c62d75c529b375a952737625e850801fae0dfa948f8cb66e17bf4aec856c8f"
+    },
+    {
+      "path": "toolkit/phone/favorites/favorites-data.js",
+      "sha256": "fdd37b1d8a1afa21acc363d63137fb482d4010e7fa10616c6ff1b42ebcaa435a"
+    },
+    {
+      "path": "toolkit/phone/favorites/favorites-list-ui.js",
+      "sha256": "e556c761a59783faf8f3d0ef21977130a1b21a98f42e7572351fa58d0c6d7be0"
+    },
+    {
+      "path": "toolkit/phone/favorites/favorites-picker-ui.js",
+      "sha256": "d713e4de6fa32f9fb43ff14610a8c249eda3f9df09c4a7471b7f54704610f91e"
+    },
+    {
+      "path": "toolkit/phone/help/emoji-guide-detail-ui.js",
+      "sha256": "ca1343f6ee4612776f332804825cab3b6e82482046aa2fe9efc97cf1bcd20369"
+    },
+    {
+      "path": "toolkit/phone/help/faq-detail-ui.js",
+      "sha256": "f74ca622bd4bd388d8526664bf5c21af286edeabaec50af07d5b0e929836012b"
+    },
+    {
+      "path": "toolkit/phone/help/help-center-ui.js",
+      "sha256": "99195094ff786bf4d12d4e1eb7c7cd07ace82a458176dafe28e5aa7a147dc224"
+    },
+    {
+      "path": "toolkit/phone/help/macro-guide-detail.js",
+      "sha256": "1b65496be58df6ba1b0efad61b446740dea4846381551378cefc0e4155735ed0"
+    },
+    {
+      "path": "toolkit/phone/index.js",
+      "sha256": "3d2436998cff8c41d8b2a64de2cc645d4124a114baed9d6d6fad9583c2a4739a"
+    },
+    {
+      "path": "toolkit/phone/membership/gift-membership-rollback-handler.js",
+      "sha256": "65a45fe46b83698c7e30cb109a28b5a74ef86434c10832ea271e8ed445586260"
+    },
+    {
+      "path": "toolkit/phone/membership/membership-center-ui.js",
+      "sha256": "16c563465f2ae392987fd8479c86fdf9e1c66d4369846152548b4b0021ddf4f3"
+    },
+    {
+      "path": "toolkit/phone/messages/friend-request-rollback-handler.js",
+      "sha256": "13814b62af9bdd5cc2a62ac6d0886bf59624fe12136eeae16d9887f9b4c65611"
+    },
+    {
+      "path": "toolkit/phone/messages/gift-membership-ui.js",
+      "sha256": "0568253b9c8dc027dad119f346f94c9af17b7aa3739df53a14b6497ede93eacd"
+    },
+    {
+      "path": "toolkit/phone/messages/message-chat-background-ui.js",
+      "sha256": "9acd5232aa5d17ef5958c5808611ea425327e91cab3aeca3d4e5516dc0b50f8c"
+    },
+    {
+      "path": "toolkit/phone/messages/message-chat-data.js",
+      "sha256": "54ca05e6e2d63040c6e12a5e9c6617eb0f559dc8405ef04af6f19ccef8fb76e8"
+    },
+    {
+      "path": "toolkit/phone/messages/message-chat-settings-ui.js",
+      "sha256": "b2a11fff5ae7f2bb603bdafd1f3e2a4a364481dc7c242654e5f51e830f422f7a"
+    },
+    {
+      "path": "toolkit/phone/messages/message-chat-ui.js",
+      "sha256": "46c5f3e4cd85c3eda6391d3c94fa65fbabdb1a94dc5eb99436cfa4db70c1ec47"
+    },
+    {
+      "path": "toolkit/phone/messages/message-debug-ui.js",
+      "sha256": "db0b8759098e0dc24989ea839042e9b0d9253a10d9e106d70b01d1dfc75ba6b6"
+    },
+    {
+      "path": "toolkit/phone/messages/message-list-ui.js",
+      "sha256": "b658e6ce65fc91c73f9e2efbf7ae62dd28cd4a3a876248b198a2759971aeb465"
+    },
+    {
+      "path": "toolkit/phone/messages/message-multiselect-ui.js",
+      "sha256": "369634e65c436311ed13f74bd1da19643ac6748f484ae29b3510a0c8df539a3e"
+    },
+    {
+      "path": "toolkit/phone/messages/message-notification-settings-ui.js",
+      "sha256": "f14b4b8adea36cbef1407d535acd001a3756991b5546c3eb1eb272421741fbaf"
+    },
+    {
+      "path": "toolkit/phone/messages/message-rollback-manager.js",
+      "sha256": "831ec28dbb172b38335d0d46cc9e1b4e90fb645ca1d4379dd860adaff112edab"
+    },
+    {
+      "path": "toolkit/phone/messages/message-send-custom-ui.js",
+      "sha256": "6292fa6f91de690eb14d08f79ff52faf942c5e6c7a7e9de3f43824167c057d75"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/buy-membership-message.js",
+      "sha256": "b6d4f51471748516ba91255651e5179e7486a4de8dd7305f161a9c2b2efd6fbe"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/emoji-message.js",
+      "sha256": "85a0ad45855a3a829d0d29dd33e5483c51ac8f1b93c9ea15285af24b4f8bc180"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/forwarded-message.js",
+      "sha256": "07d581763132b0448f4fbb0832cfa894cb8a0510892645b7b1862392a70cc504"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/friend-added-message.js",
+      "sha256": "5eee7b9e722f3904f243ce167843813e0ea73b31c282cb6dbee9fa7e5938af4b"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/friend-deleted-message.js",
+      "sha256": "e412bad65d2cb823a7aef9905731ab042defa7de4495c9b5a5e7fd967d26abb7"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/friend-request-message.js",
+      "sha256": "12bda3e88fab67cc301512ab6a9338960c3ae3b979834a427043318bd8127c2f"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/gift-membership-message.js",
+      "sha256": "156f4f689ef6a1fe10b5961e2c63407ee2c631245c4da0c757c1f22ad007a99a"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/image-fake-message.js",
+      "sha256": "6b75fc27c10d05a8c9a4133b8031f22fe0485fb58d28ee1cd49288e6d8b0e2f8"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/image-message.js",
+      "sha256": "a8bd365067f390d7a1da6943362f3421d8f374f23a94c7499c90bf97e4ec1c80"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/image-real-message.js",
+      "sha256": "035cb521590e56c170bbc7e014dbf5b22ea842e42665d5bf4f1a242337a1d128"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/plan-message.js",
+      "sha256": "f4a0ff8b123c7fc5f279717d4995a6d9eeb813d336397266cbdd616a566027f8"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/plan-story-message.js",
+      "sha256": "979233faeca50f4de5215b0c545622842d9b700f9d4235366cf2d214697ee49c"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/poke-message.js",
+      "sha256": "da6288461b84173c85a9e7d9b62e554cefd49c2f8f7e588eedf3b868e3a817e2"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/quote-message.js",
+      "sha256": "219b83fdbca111760c6cf1522203cdad2495f0a64fac4738fdedd38f498ad6e2"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/recalled-message.js",
+      "sha256": "d25878745999dd7ac411d7462f7b7447cf2cc2634908aeff6c17a6ec507e08c1"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/signature-message.js",
+      "sha256": "8a4262fdf7057cd749eb7c1cc2d07f8f64c392a1ab78056b4814817728211777"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/system-message.js",
+      "sha256": "0b658c5081e72b98a4f409011316465c3070b02794c29e440bd0035be665301e"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/text-message.js",
+      "sha256": "0b83692a527827451a412425144cb6d864bb716c8ea1005f539c856680d90bd2"
+    },
+    {
+      "path": "toolkit/phone/messages/message-types/transfer-message.js",
+      "sha256": "20a6f554ffdb44f3c1d913044b914fffb6256bd773743df60f558934d0f76cbb"
+    },
+    {
+      "path": "toolkit/phone/messages/transfer-ui.js",
+      "sha256": "c3d6f47babd2539413955415d77f353c6dff7f256b0378e73bec48e8c37f95ab"
+    },
+    {
+      "path": "toolkit/phone/messages/unread-badge-manager.js",
+      "sha256": "298ec749e3952a8e2aef80884d0a06fe11e469295c127718f69a299091084132"
+    },
+    {
+      "path": "toolkit/phone/phone-main-ui.js",
+      "sha256": "09a6a2478e37724004640a28b54644684462e774d92586711a91180d60dbb634"
+    },
+    {
+      "path": "toolkit/phone/phone-system.js",
+      "sha256": "8f443f311ea7a94e6d8bb6374b0979cd121b798215640e0cbe50ea590ebcb191"
+    },
+    {
+      "path": "toolkit/phone/plans/plan-data.js",
+      "sha256": "44c20d16842b208371180ffd09eecf45a9109f07c8b319c298d96a0d2d7bfe12"
+    },
+    {
+      "path": "toolkit/phone/plans/plan-executor.js",
+      "sha256": "bb1e98200732383a857e3a603c824fed582aee4d9f42449003e209f534f19351"
+    },
+    {
+      "path": "toolkit/phone/plans/plan-list-ui.js",
+      "sha256": "90340570f8ebdb8e07aff6feaad2151bb1dec6870da184e68d3236c45404e98f"
+    },
+    {
+      "path": "toolkit/phone/plans/plan-rollback-handler.js",
+      "sha256": "72d30d1825e3a6a2363a7ff74dcf921530d45dd8f3acc0a75eacc908596b26d7"
+    },
+    {
+      "path": "toolkit/phone/plans/plan-story-rollback-handler.js",
+      "sha256": "42fed144b50bd828f3d21e104f2ca7aaf063f86921145f24b34ef48017a79416"
+    },
+    {
+      "path": "toolkit/phone/plans/plan-tavern-sender.js",
+      "sha256": "d8cdc28fa09923e343a3c2ca74e55e90d5ddab5be9f5d541fe374158250997c3"
+    },
+    {
+      "path": "toolkit/phone/profile/signature-data.js",
+      "sha256": "0041a4f1910d487f1f2065b03aaae586f4c7ffcfde153460b493420a05e7337e"
+    },
+    {
+      "path": "toolkit/phone/profile/signature-history-ui.js",
+      "sha256": "cc7e28dc486cc95ae31b2d1be54af07bc92e6cfe0b77c7c973efb2f9ca083064"
+    },
+    {
+      "path": "toolkit/phone/profile/signature-rollback-handler.js",
+      "sha256": "8efc31ab50cb18b016395bf7d55a952ca804c2e2df531939ec5963117f3a0e8d"
+    },
+    {
+      "path": "toolkit/phone/profile/user-profile-ui.js",
+      "sha256": "010407f7a8b586282c31d7e4a5c712f1c3eb0a0d0b8279123ac432dad8facd11"
+    },
+    {
+      "path": "toolkit/phone/profile/user-settings-ui.js",
+      "sha256": "0aa2fb152283a4d78aaef3e24533eabc231176bbcae0de4fd79cf42076bd4676"
+    },
+    {
+      "path": "toolkit/phone/profile/user-wallet-ui.js",
+      "sha256": "982a08068e38b5f3d56e1263040857017b2bbc8922d1d0fbb4a400c7b1b9cb10"
+    },
+    {
+      "path": "toolkit/phone/settings/api-settings-ui.js",
+      "sha256": "b82f495c53d778c37e231eba6eacd103b3e341a3b415e9a0fe0cc3630704c42a"
+    },
+    {
+      "path": "toolkit/phone/settings/character-prompt-settings-ui.js",
+      "sha256": "ea8bcb13a47fdb64d1029804177a3e31f6635b452223fdb7b283908b4faac42e"
+    },
+    {
+      "path": "toolkit/phone/settings/contact-regex-settings-ui.js",
+      "sha256": "1ea59fd3785252f2042269f1ba4c3054a54e9e47ce64943e3e0ae1fc06004ccd"
+    },
+    {
+      "path": "toolkit/phone/settings/image-mode-settings-ui.js",
+      "sha256": "2a7d543e2382aca525e47e59854268a5b3c287aaee3af333c9b19075a69f5306"
+    },
+    {
+      "path": "toolkit/phone/settings/preset-settings-ui.js",
+      "sha256": "05c05a002369766dc6b7d88b92af4b238a6b4caca0aeceab0baec213ae998911"
+    },
+    {
+      "path": "toolkit/phone/storage/image-data.js",
+      "sha256": "2d57431b1fd502bd9e7a771cf909d1d49f6695d42b0a845ce6d067c9e034c7dc"
+    },
+    {
+      "path": "toolkit/phone/storage/image-storage-ui.js",
+      "sha256": "c7363f53cb0009caa5d5d387139dddef1b005d94825d3c0748df91ec28913822"
+    },
+    {
+      "path": "toolkit/phone/storage/storage-space-ui.js",
+      "sha256": "4909cc5765ab5853cfbda25d52e53e89eed48db6c4e23f998c1d6d67a643d480"
+    },
+    {
+      "path": "toolkit/phone/templates/phone-frame-template.js",
+      "sha256": "18cebf5a51efed5dfed97bd5a24ad44ec9b706839394d55668b0e16247528101"
+    },
+    {
+      "path": "toolkit/phone/transfers/transfer-rollback-handler.js",
+      "sha256": "9eb552c2619a3014e067fe16e2782b579097f863ddd06985461c5ec07d71402a"
+    },
+    {
+      "path": "toolkit/phone/ui-components/button-plus-menu.js",
+      "sha256": "070f77e1c58568686922c65fc362748bbce3161d0b2a832378b7a9c532b4ae3e"
+    },
+    {
+      "path": "toolkit/phone/ui-components/toast-notification.js",
+      "sha256": "6a4f055bece5994a444b98c49bfebbdc9b4b216ad5b1d82c0612de4ff66ef9f1"
+    },
+    {
+      "path": "toolkit/phone/utils/background-picker.js",
+      "sha256": "9ee04759b67ab38a33eac08aab86d6397cfd7f3750455db64a5478a4fa2a463a"
+    },
+    {
+      "path": "toolkit/phone/utils/contact-display-helper.js",
+      "sha256": "732cc15614baf8e5cb850078108996d5301416a0ebc85bb50391faa75f44a6af"
+    },
+    {
+      "path": "toolkit/phone/utils/contact-selector-popup.js",
+      "sha256": "b5ec6fcf90bf4d865e4331e4fe271bcb0a8b29ab22faf7c1a746c81a0a0ebbb4"
+    },
+    {
+      "path": "toolkit/phone/utils/dom-helper.js",
+      "sha256": "289f42192803376b46f57cbbd6328512d10940ed59850958307f5263c4d34b35"
+    },
+    {
+      "path": "toolkit/phone/utils/image-helper.js",
+      "sha256": "97bbefaf22665f348d466f08809d60144e3c063252f7fddd7d69432624148aaa"
+    },
+    {
+      "path": "toolkit/phone/utils/listener-manager.js",
+      "sha256": "3c93e6e11da980f4ef91c431ee37e1c84683689e39a846922416898db1f3771b"
+    },
+    {
+      "path": "toolkit/phone/utils/membership-badge-helper.js",
+      "sha256": "069ff0cd5e9558b49e7ec9f941d9c38dac2bcc1b938cbff38aa38c44a89c3157"
+    },
+    {
+      "path": "toolkit/phone/utils/membership-popup-helper.js",
+      "sha256": "0396dd898096663bdef01829fd042cf00b779c39ac86cefe1c010ea0d7516413"
+    },
+    {
+      "path": "toolkit/phone/utils/message-actions-helper.js",
+      "sha256": "d6b0435fb2dfa48e8cfb51afad8dfb62ef4dcc009003598480453107f4f988b4"
+    },
+    {
+      "path": "toolkit/phone/utils/page-stack-helper.js",
+      "sha256": "52a58e519f365efd72b764926891286bce6f04630be8eb4ec5e489aae000f807"
+    },
+    {
+      "path": "toolkit/phone/utils/popup-helper.js",
+      "sha256": "8e6f28eedc6d637e563aa57a903caa030c42b06d2c3da421d559db1fb9659e2f"
+    },
+    {
+      "path": "toolkit/phone/utils/state-manager.js",
+      "sha256": "5a1bfa47e8754a38cdc494204a1e439c9625b65b938eea0e08e89917c8cdcd7c"
+    },
+    {
+      "path": "toolkit/phone/utils/tavern-macros.js",
+      "sha256": "e08c91920536dc53bd69b954f7b4ae92e5630d3926ddb0d2a2b324f1080c335c"
+    },
+    {
+      "path": "toolkit/phone/utils/theme-manager.js",
+      "sha256": "f442ba65c1f149c0cd7416ebc619aa0708763d4045118b57d54c6c13fa3c8c7a"
+    },
+    {
+      "path": "toolkit/phone/utils/time-helper.js",
+      "sha256": "db2de501c726927d3a3e7014c548ef717c09bf2c052cddf5c530e1bc8f394db6"
+    },
+    {
+      "path": "toolkit/phone/utils/weather-helper.js",
+      "sha256": "a19ef86e01504e674522e4d30276bfe3f9dcc51363c4674b341c0021e4ca4153"
+    }
+  ]
+}
