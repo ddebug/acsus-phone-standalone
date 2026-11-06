@@ -475,7 +475,7 @@ test('cycles, accessors, custom prototypes and non-JSON values cannot execute or
     cyclic.self = cyclic;
     const accessor = { contacts: [] };
     Object.defineProperty(accessor, 'danger', { enumerable: true, get() { called = true; return 'not executed'; } });
-    const values = [cyclic, accessor, { contacts: [], date: new Date() }, Object.assign(Object.create({ inherited: true }), { contacts: [] }), { contacts: [], invalid: undefined }, { contacts: [], invalid: NaN }, { contacts: [], invalid() {} }, { contacts: new Array(2) }];
+    const values = [cyclic, accessor, { contacts: [], date: new Date() }, Object.assign(Object.create({ inherited: true }), { contacts: [] }), { contacts: [], invalid: NaN }, { contacts: [], invalid: 10n }, { contacts: new Array(2) }];
     const h = harness();
     await h.store.initPhoneStorage();
     for (const value of values) await rejectsCode(h.store.importPhoneBackup(value), 'INVALID_JSON');
@@ -515,7 +515,8 @@ test('invalid live edits during import are reported and retained without stale r
     await h.store.initPhoneStorage();
     const task = h.store.importPhoneBackup({ contacts: [] });
     await entered.promise;
-    h.memory.invalid = undefined;
+    // BigInt is not JSON data; undefined properties are omitted like JSON.stringify does.
+    h.memory.invalid = 10n;
     release.resolve();
     await rejectsCode(task, 'INVALID_JSON');
     assert.equal(Object.hasOwn(h.memory, 'invalid'), true);

@@ -6,6 +6,7 @@ import {
   getStorageStatus,
   exportPhoneBackup,
   importPhoneBackup,
+  forceOverwritePhoneStorage,
 } from './standalone/phone-settings.js';
 
 const PANEL_ID = 'acsus-phone-standalone-settings';
@@ -36,7 +37,7 @@ function diagnosticsText() {
   const error = shellError || status.error;
   return JSON.stringify({
     extension: 'acsus-phone-standalone',
-    version: '0.1.1',
+    version: '0.1.2',
     ready: status.ready, dirty: status.dirty, saving: status.saving,
     path: status.path,
     error: error ? errorKeyOf(error) : null,
@@ -108,6 +109,7 @@ function updateStatus() {
   ui('export').disabled = busy || !status.ready;
   ui('import').disabled = busy || !status.ready || needsReload || Boolean(error);
   ui('retry-save').disabled = busy || !status.ready || !status.dirty;
+  ui('force-save').disabled = busy || !status.ready;
   ui('retry-load').disabled = busy || status.ready;
   if (status.error) {
     const key = errorKeyOf(status.error);
@@ -186,6 +188,7 @@ function mountPanel() {
       <button type="button" data-role="open">打开手机</button>
       <button type="button" data-role="retry-load">重新载入</button>
       <button type="button" data-role="retry-save">重试保存</button>
+      <button type="button" data-role="force-save">以内存为准强制保存</button>
     </div>
     <p data-role="storage-status" role="status" aria-live="polite"></p>
     <div class="standalone-phone-actions">
@@ -212,6 +215,10 @@ function mountPanel() {
   });
   ui('retry-load').addEventListener('click', () => runAction(initialize));
   ui('retry-save').addEventListener('click', () => runAction(flushPhoneStorage));
+  ui('force-save').addEventListener('click', () => runAction(async () => {
+    if (!window.confirm('这会用当前页面内存里的手机数据覆盖独立文件（先导出备份！）。确定继续？')) return;
+    await forceOverwritePhoneStorage();
+  }));
   ui('reload').addEventListener('click', () => location.reload());
   ui('copy-diagnostics').addEventListener('click', () => { void copyDiagnostics(); });
   ui('export').addEventListener('click', () => runAction(async () => {

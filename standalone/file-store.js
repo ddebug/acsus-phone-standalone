@@ -93,11 +93,20 @@ function copyJson(value, limits) {
         if (array) {
             for (let index = 0; index < item.length; index++) {
                 if (!Object.hasOwn(item, index)) fail('INVALID_JSON', 'Sparse arrays are not supported JSON data.');
-                result.push(visit(item[index], depth + 1));
+                const entry = item[index];
+                // JSON.stringify turns undefined/function/symbol array slots into null.
+                result.push(typeof entry === 'undefined' || typeof entry === 'function' || typeof entry === 'symbol'
+                    ? null
+                    : visit(entry, depth + 1));
             }
         } else {
             // Stable ordering makes comparisons independent of object key order.
-            for (const key of keys.sort()) result[key] = visit(item[key], depth + 1);
+            for (const key of keys.sort()) {
+                const entry = item[key];
+                // Match JSON.stringify: omit undefined/function/symbol properties instead of rejecting.
+                if (typeof entry === 'undefined' || typeof entry === 'function' || typeof entry === 'symbol') continue;
+                result[key] = visit(entry, depth + 1);
+            }
         }
         ancestors.delete(item);
         return result;
@@ -435,6 +444,31 @@ export function createPhoneFileStore({
         if (importing) return observed(Promise.reject(new PhoneStorageError('IMPORT_BUSY', 'Phone import is in progress; saves are frozen.')));
         return scheduleFlush();
     }
+    /**
+     * Explicit, user-confirmed recovery: treat the current memory as authoritative,
+     * rebase onto whatever revision the file currently has, then write it.
+     * Only use after exporting a backup; it overwrites concurrent edits.
+     */
+    function forceOverwritePhoneStorage() {
+        if (importing) return observed(Promise.reject(new PhoneStorageError('IMPORT_BUSY', 'Phone import is in progress; saves are frozen.')));
+        if (!ready) return observed(Promise.reject(report(new PhoneStorageError('NOT_READY', 'Phone storage is not initialized; no file was written.'))));
+        return queue(async () => {
+            try {
+                saving = true;
+                emit();
+                const remote = await readFile();
+                knownRevision = remote?.envelope.revision ?? null;
+                committedText = remote?.phoneText ?? '{}';
+                blocked = false;
+                error = null;
+                dirty = true;
+            } finally {
+                saving = false;
+                emit();
+            }
+            return runSave();
+        });
+    }
     function exportPhoneBackup({ includeSecrets = false } = {}) {
         if (!ready) fail('NOT_READY', 'Initialize phone storage before exporting a backup.');
         const phone = snapshot().value;
@@ -516,6 +550,6 @@ export function createPhoneFileStore({
     }
     return Object.freeze({
         initPhoneStorage, saveSettingsDebounced, flushPhoneStorage,
-        getStorageStatus, exportPhoneBackup, importPhoneBackup,
+        getStorageStatus, exportPhoneBackup, importPhoneBackup, forceOverwritePhoneStorage,
     });
 }

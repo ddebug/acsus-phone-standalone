@@ -1,12 +1,12 @@
 {
-  "display_name": "独立小手�?· Acsus Phone",
+  "display_name": "独立小手机 · Acsus Phone",
   "loading_order": 20,
   "requires": [],
   "optional": [],
   "js": "index.js",
   "css": "style.css",
-  "author": "白沉 & �?/ AcSus · standalone adaptation",
-  "version": "0.1.1",
+  "author": "白沉 & 溯 / AcSus · standalone adaptation",
+  "version": "0.1.2",
   "homePage": "https://github.com/ddebug/acsus-phone-standalone",
   "auto_update": false
 }

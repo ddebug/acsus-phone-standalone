@@ -43,3 +43,5 @@ export const getStorageStatus = store.getStorageStatus;
 export const exportPhoneBackup = store.exportPhoneBackup;
 /** Import a selected JSON object/text after verified backup; never migrate secrets. */
 export const importPhoneBackup = store.importPhoneBackup;
+/** User-confirmed recovery: rebase onto the file's current revision, then write memory. */
+export const forceOverwritePhoneStorage = store.forceOverwritePhoneStorage;

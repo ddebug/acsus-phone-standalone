@@ -1,4 +1,4 @@
-import { extension_settings, saveSettingsDebounced } from '../../../standalone/phone-settings.js';
+import { extension_settings, saveSettingsDebounced, flushPhoneStorage } from '../../../standalone/phone-settings.js';
 /**
  * 聊天数据管理（JSONL格式）
  * @module phone/messages/message-chat-data
@@ -154,8 +154,13 @@ export async function saveChatMessage(contactId, message) {
   // 追加消息
   extension_settings.acsusStandalonePhone.phone.chats[chatKey].push(message);
 
-  // 保存到服务器
+  // 立即落盘：只在内存里堆着，重启或崩溃时会丢消息。
   saveSettingsDebounced();
+  try {
+    await flushPhoneStorage();
+  } catch (error) {
+    logger.error('phone', '[ChatData] 消息保存失败，已在存储状态中标记:', error);
+  }
 
   logger.debug('phone', '[ChatData] 保存消息:', contactId, getMessagePreview(message));
 
@@ -203,6 +208,11 @@ export async function saveChatMessages(contactId, messages) {
 
   // 保存到服务器
   saveSettingsDebounced();
+  try {
+    await flushPhoneStorage();
+  } catch (error) {
+    logger.error('phone', '[ChatData] 批量消息保存失败:', error);
+  }
 
   logger.debug('phone', '[ChatData] 批量保存消息:', contactId, `共${messages.length}条`);
 }
