@@ -11,4 +11,11 @@
 #acsus-phone-standalone-settings button:disabled { opacity: .45; cursor: not-allowed; }
 #acsus-phone-standalone-settings label { display: inline-flex; gap: 6px; align-items: center; }
 #acsus-phone-standalone-settings.standalone-phone-floating { position: fixed; z-index: 99999; right: 12px; bottom: 12px; max-width: min(440px, calc(100vw - 24px)); background: #243044; color: white; box-shadow: 0 4px 18px #0006; }
-.standalone-phone-safety-banner { position: fixed; z-index: 2147483646; left: 12px; right: 12px; top: 12px; padding: 12px; border: 1px solid #ff9189; border-radius: 8px; background: #381c23; color: #fff; font-size: 14px; line-height: 1.5; }
+.standalone-phone-safety-banner { position: fixed; z-index: 2147483646; right: 12px; bottom: 12px; width: min(360px, calc(100vw - 24px)); max-height: 60vh; overflow: auto; padding: 10px 12px; border: 1px solid #ff9189; border-radius: 10px; background: #2b1b20; color: #ffe9e6; box-shadow: 0 6px 20px #0007; font-size: 13px; line-height: 1.55; }
+.standalone-phone-safety-banner p { margin: 6px 0; }
+.standalone-phone-safety-banner .spsb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.standalone-phone-safety-banner .spsb-close { border: 0; background: transparent; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px; }
+.standalone-phone-safety-banner .spsb-details summary { cursor: pointer; opacity: .85; }
+.standalone-phone-safety-banner .spsb-details pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; font-size: 12px; }
+.standalone-phone-safety-banner .spsb-actions { display: flex; gap: 8px; margin-top: 8px; }
+.standalone-phone-safety-banner .spsb-actions button { padding: 4px 8px; border: 1px solid currentColor; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; font: inherit; }

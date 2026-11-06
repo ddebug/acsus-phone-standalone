@@ -23,16 +23,73 @@ function phoneData() { return extension_settings.acsusStandalonePhone.phone; }
 function originalPhonePresent() { return Boolean(document.getElementById('phone-menu-entry')); }
 function ui(role) { return panel?.querySelector(`[data-role="${role}"]`); }
 
-function showSafetyBanner(message) {
-  let banner = document.getElementById('standalone-phone-safety-banner');
+let banner;
+let dismissedBannerKey = '';
+
+function errorKeyOf(error) {
+  if (!error) return '';
+  return typeof error === 'string' ? error : `${error.code || 'ERROR'}:${error.message || String(error)}`;
+}
+
+function diagnosticsText() {
+  const status = getStorageStatus();
+  const error = shellError || status.error;
+  return JSON.stringify({
+    extension: 'acsus-phone-standalone',
+    version: '0.1.1',
+    ready: status.ready, dirty: status.dirty, saving: status.saving,
+    path: status.path,
+    error: error ? errorKeyOf(error) : null,
+    shellError: shellError || null,
+    originalConflict,
+    needsReload,
+    origin: location.origin,
+    secureContext: window.isSecureContext,
+    hasLocks: Boolean(globalThis.navigator?.locks),
+    time: new Date().toISOString(),
+  }, null, 2);
+}
+
+function removeBanner() {
+  banner?.remove();
+  banner = null;
+}
+
+function showSafetyBanner(message, detail, key) {
   if (!banner) {
     banner = document.createElement('div');
     banner.id = 'standalone-phone-safety-banner';
     banner.className = 'standalone-phone-safety-banner';
     banner.setAttribute('role', 'alert');
+    banner.innerHTML = `
+      <div class="spsb-head">
+        <strong data-role="banner-title">独立小手机提示</strong>
+        <button type="button" class="spsb-close" data-role="banner-close" title="关闭提示" aria-label="关闭提示">×</button>
+      </div>
+      <p data-role="banner-text"></p>
+      <details class="spsb-details"><summary>详情</summary><pre data-role="banner-detail"></pre></details>
+      <div class="spsb-actions">
+        <button type="button" data-role="banner-copy">复制诊断</button>
+        <button type="button" data-role="banner-close-action">关闭</button>
+      </div>`;
+    banner.querySelector('[data-role="banner-close"]').addEventListener('click', () => { dismissedBannerKey = errorKeyOf(shellError || getStorageStatus().error); removeBanner(); });
+    banner.querySelector('[data-role="banner-close-action"]').addEventListener('click', () => { dismissedBannerKey = errorKeyOf(shellError || getStorageStatus().error); removeBanner(); });
+    banner.querySelector('[data-role="banner-copy"]').addEventListener('click', () => copyDiagnostics());
     document.body.append(banner);
   }
-  banner.textContent = message;
+  banner.dataset.key = key || '';
+  banner.querySelector('[data-role="banner-text"]').textContent = message;
+  banner.querySelector('[data-role="banner-detail"]').textContent = detail || '没有更多细节。';
+}
+
+async function copyDiagnostics() {
+  try {
+    await navigator.clipboard.writeText(diagnosticsText());
+    shellError = '';
+    updateStatus();
+  } catch {
+    window.prompt('复制下面的诊断信息发给作者：', diagnosticsText());
+  }
 }
 
 function updateStatus() {
@@ -53,9 +110,22 @@ function updateStatus() {
   ui('retry-save').disabled = busy || !status.ready || !status.dirty;
   ui('retry-load').disabled = busy || status.ready;
   if (status.error) {
-    showSafetyBanner('独立小手机保存失败或发生冲突。新改动可能尚未写入，请到扩展设置导出备份；若提示写入结果不明确，请保留备份后刷新，不要强制覆盖。');
+    const key = errorKeyOf(status.error);
+    if (key !== dismissedBannerKey) {
+      showSafetyBanner(
+        '独立小手机保存失败或发生冲突。新改动可能尚未写入，请到扩展设置导出备份；若提示写入结果不明确，请保留备份后刷新，不要强制覆盖。',
+        key,
+        key,
+      );
+    }
+  } else if (originalConflict) {
+    const key = 'CONFLICT:original-phone';
+    if (key !== dismissedBannerKey) {
+      showSafetyBanner('检测到原版小手机入口。请在原插件内关闭“手机”功能，然后刷新页面。其他原插件功能可以保留。', key, key);
+    }
   } else {
-    document.getElementById('standalone-phone-safety-banner')?.remove();
+    dismissedBannerKey = '';
+    removeBanner();
   }
 }
 
@@ -125,6 +195,7 @@ function mountPanel() {
     <label>手动导入备份／旧设置文件：<input type="file" accept=".json,application/json" data-role="import"></label>
     <p class="standalone-phone-note">备份即使不含密钥，也包含私人聊天。导入只替换独立版，先备份当前独立文件，不删除原记录；默认不迁移 API 凭据。图片仅保留引用，并非随备份打包。不要在多台设备同时编辑；清理宿主“未使用的用户文件”前必须另存备份。</p>
     <button type="button" data-role="reload">刷新页面</button>
+    <button type="button" data-role="copy-diagnostics">复制诊断信息</button>
   `;
   const target = document.querySelector('#extensions_settings2, #extensions_settings');
   if (!target) panel.classList.add('standalone-phone-floating');
@@ -142,6 +213,7 @@ function mountPanel() {
   ui('retry-load').addEventListener('click', () => runAction(initialize));
   ui('retry-save').addEventListener('click', () => runAction(flushPhoneStorage));
   ui('reload').addEventListener('click', () => location.reload());
+  ui('copy-diagnostics').addEventListener('click', () => { void copyDiagnostics(); });
   ui('export').addEventListener('click', () => runAction(async () => {
     downloadJson(await exportPhoneBackup({ includeSecrets: ui('include-secrets').checked }));
   }));
