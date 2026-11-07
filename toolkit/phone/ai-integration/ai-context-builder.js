@@ -196,6 +196,36 @@ function formatTimestamp(timestamp) {
 }
 
 /**
+ * 生成聊天记录的时间前缀。
+ *
+ * 默认沿用原有的“跨天显示日期、同天显示时间”规则；
+ * 额外优化：同一次 API 调用拆出的多条角色消息，只在第一条显示时间，
+ * 后续消息不再重复时间，省下上下文。
+ *
+ * @private
+ * @param {Array<Object>} list - 消息列表
+ * @param {number} index - 当前消息下标
+ * @param {Object} msg - 当前消息
+ * @param {Function} formatTimeForAI - 时间格式化函数
+ * @returns {string} 时间前缀（可能为空字符串）
+ */
+function buildCompactTimePrefix(list, index, msg, formatTimeForAI) {
+  const previous = index > 0 ? list[index - 1] : null;
+  const prevTime = previous ? previous.time : null;
+  const prefix = formatTimeForAI(msg.time, prevTime, index === 0);
+  if (!prefix || prefix.includes('-')) return prefix;
+  const time = Number(msg?.time);
+  const previousTime = Number(prevTime);
+  const sameCall = previous
+    && previous.sender === 'contact'
+    && msg.sender === 'contact'
+    && Number.isFinite(time)
+    && Number.isFinite(previousTime)
+    && Math.abs(time - previousTime) <= 30;
+  return sameCall ? '' : prefix;
+}
+
+/**
  * 提取被触发的联系人ID列表（从待发送消息中提取）
  *
  * @async
@@ -908,7 +938,7 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
     const senderName = msg.sender === 'user' ? userName : contact.name;
     const prevTime = index > 0 ? recentHistory[index - 1].time : null;
     const isFirst = index === 0;
-    const timeStr = formatTimeForAI(msg.time, prevTime, isFirst);
+    const timeStr = buildCompactTimePrefix(recentHistory, index, msg, formatTimeForAI);
 
     // 格式化消息内容
     let messageContent = msg.content;
@@ -1192,8 +1222,8 @@ export async function buildChatHistoryInfo(contactId, contact, messageNumberMap,
       const prevTime = index > 0 ? recentHistory[index - 1].time : null;
       const isFirst = index === 0;
 
-      // 智能时间显示（跨天显示日期，同天显示时间）
-      const timeStr = formatTimeForAI(msg.time, prevTime, isFirst);
+      // 智能时间显示（跨天显示日期；同一次 API 回复只显示一次时间）
+      const timeStr = buildCompactTimePrefix(recentHistory, index, msg, formatTimeForAI);
 
       // 根据消息类型添加前缀
       let messageContent = msg.content;
@@ -1606,7 +1636,7 @@ async function buildUserPendingOps(pendingMessages, messageNumberMap, startNumbe
       // 判断是否需要显示日期分组
       const prevTime = index > 0 ? messages[index - 1].time : null;
       const isFirst = index === 0;
-      const timeStr = formatTimeForAI(msg.time, prevTime, isFirst);
+      const timeStr = buildCompactTimePrefix(messages, index, msg, formatTimeForAI);
 
       // 根据消息类型添加前缀
       let messageContent = msg.content;
@@ -1933,7 +1963,7 @@ export async function buildHistoryChatInfo(contactId, contact, messageNumberMap)
     const isFirst = index === 0;
 
     // 智能时间显示
-    const timeStr = formatTimeForAI(msg.time, prevTime, isFirst);
+    const timeStr = buildCompactTimePrefix(historyMessages, index, msg, formatTimeForAI);
 
     // 根据消息类型添加前缀
     let messageContent = msg.content;
