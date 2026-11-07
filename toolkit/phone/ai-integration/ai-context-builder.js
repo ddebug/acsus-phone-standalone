@@ -1027,8 +1027,7 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
     } else if (msg.type === 'image-fake' || (msg.type === 'image' && !msg.imageUrl)) {
       messageContent = `[图片]${msg.description || '无描述'}`;
     } else if (msg.type === 'quote') {
-      const quotedText = formatQuotedMessageForAI(msg.quotedMessage);
-      messageContent = `[引用]${quotedText}[回复]${msg.replyContent}`;
+      messageContent = `${formatQuoteReference(msg.quotedMessage, messageNumberMap)}[回复]${msg.replyContent}`;
     } else if (msg.type === 'transfer') {
       messageContent = msg.message ? `[转账]${msg.amount}元 ${msg.message}` : `[转账]${msg.amount}元`;
     } else if (msg.type === 'gift-membership') {
@@ -1347,9 +1346,8 @@ export async function buildChatHistoryInfo(contactId, contact, messageNumberMap,
           messageContent = `[图片]${msg.description || '无描述'}`;
         }
       } else if (msg.type === 'quote') {
-        // 引用消息：格式化为 [引用]原内容[回复]回复内容
-        const quotedText = formatQuotedMessageForAI(msg.quotedMessage);
-        messageContent = `[引用]${quotedText}[回复]${msg.replyContent}`;
+        // 引用消息：上下文里已有的原文只写楼层号，避免重复插入
+        messageContent = `${formatQuoteReference(msg.quotedMessage, messageNumberMap)}[回复]${msg.replyContent}`;
       } else if (msg.type === 'transfer') {
         // 转账消息：格式化为 [转账]金额元 留言内容
         messageContent = msg.message
@@ -1459,6 +1457,27 @@ function formatQuotedMessageForAI(quotedMessage) {
     default:
       return '[不支持的类型]';
   }
+}
+
+/**
+ * 格式化引用：被引用的消息如果已经在当前上下文里，只写楼层号，
+ * 避免把原文再插一遍；不在窗口内时才退回短文本（超长截断）。
+ *
+ * @private
+ * @param {Object} quotedMessage - 被引用的消息
+ * @param {Map<number, string>} messageNumberMap - 楼层号 → 消息ID
+ * @returns {string} 引用前缀
+ */
+function formatQuoteReference(quotedMessage, messageNumberMap) {
+  const quotedId = quotedMessage?.id || quotedMessage?.messageId;
+  if (quotedId && messageNumberMap instanceof Map) {
+    for (const [number, messageId] of messageNumberMap) {
+      if (messageId === quotedId) return `[引用#${number}]`;
+    }
+  }
+  const text = formatQuotedMessageForAI(quotedMessage);
+  const shortText = text.length > 40 ? `${text.slice(0, 40)}…` : text;
+  return `[引用]${shortText}`;
 }
 
 /**
@@ -1794,9 +1813,8 @@ async function buildUserPendingOps(pendingMessages, messageNumberMap, startNumbe
         const typeText = msg.membershipType === 'vip' ? 'VIP' : 'SVIP';
         messageContent = `[开会员]${msg.months}个月${typeText}会员`;
       } else if (msg.type === 'quote') {
-        // ✅ 引用消息：格式化为 [引用]原内容[回复]回复内容
-        const quotedText = formatQuotedMessageForAI(msg.quotedMessage);
-        messageContent = `[引用]${quotedText}[回复]${msg.replyContent}`;
+        // ✅ 引用消息：上下文里已有的原文只写楼层号，避免重复插入
+        messageContent = `${formatQuoteReference(msg.quotedMessage, messageNumberMap)}[回复]${msg.replyContent}`;
       } else if (msg.type === 'forwarded') {
         // ✅ 转发消息：格式化内层消息
         messageContent = formatForwardedMessageForAI(msg, userName, formatTimeForAI);
@@ -2053,9 +2071,8 @@ export async function buildHistoryChatInfo(contactId, contact, messageNumberMap)
         messageContent = `[图片]${msg.description || '无描述'}`;
       }
     } else if (msg.type === 'quote') {
-      // 引用消息：格式化为 [引用]原内容[回复]回复内容
-      const quotedText = formatQuotedMessageForAI(msg.quotedMessage);
-      messageContent = `[引用]${quotedText}[回复]${msg.replyContent}`;
+      // 引用消息：上下文里已有的原文只写楼层号，避免重复插入
+      messageContent = `${formatQuoteReference(msg.quotedMessage, messageNumberMap)}[回复]${msg.replyContent}`;
     } else if (msg.type === 'forwarded') {
       // 转发消息：格式化内层消息，添加时间戳
       messageContent = formatForwardedMessageForAI(msg, userName, formatTimeForAI);
