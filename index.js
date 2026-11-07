@@ -37,7 +37,7 @@ function diagnosticsText() {
   const error = shellError || status.error;
   return JSON.stringify({
     extension: 'acsus-phone-standalone',
-    version: '0.1.5',
+    version: '0.1.6',
     ready: status.ready, dirty: status.dirty, saving: status.saving,
     path: status.path,
     error: error ? errorKeyOf(error) : null,

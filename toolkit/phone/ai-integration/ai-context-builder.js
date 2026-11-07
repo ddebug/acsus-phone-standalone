@@ -226,6 +226,53 @@ function buildCompactTimePrefix(list, index, msg, formatTimeForAI) {
 }
 
 /**
+ * 同一条 API 回复里的多条角色消息，在上下文里合并成一行：
+ * 只保留第一个楼层号和说话人，后续气泡用“ / ”连接。
+ *
+ * 只合并“没有时间前缀、且与上一行同一说话人”的编号行，
+ * 用户消息、跨天/跨时段消息都不受影响。
+ */
+function compactSameCallLines(text) {
+  if (typeof text !== 'string' || !text.includes('[#')) return text;
+  const parseLine = line => {
+    const numbered = line.match(/^\[#(\d+)\] (.*)$/);
+    if (!numbered) return null;
+    let rest = numbered[2];
+    let hasTime = false;
+    const time = rest.match(/^\[(?:\d{4}-\d{2}-\d{2}|\d{1,2}:\d{2})\]/);
+    if (time) {
+      hasTime = true;
+      rest = rest.slice(time[0].length);
+      if (rest.startsWith(' ')) rest = rest.slice(1);
+    }
+    const separator = rest.indexOf(': ');
+    if (separator <= 0) return null;
+    return {
+      number: numbered[1],
+      hasTime,
+      raw: line,
+      sender: rest.slice(0, separator),
+      content: rest.slice(separator + 2),
+    };
+  };
+
+  const lines = text.split('\n');
+  const output = [];
+  let previous = null;
+  for (const line of lines) {
+    const current = parseLine(line);
+    if (current && !current.hasTime && previous && previous.sender === current.sender) {
+      output[output.length - 1] = `${output[output.length - 1]} / ${current.content}`;
+      previous = { ...previous, content: `${previous.content} / ${current.content}` };
+      continue;
+    }
+    output.push(line);
+    previous = current;
+  }
+  return output.join('\n');
+}
+
+/**
  * 提取被触发的联系人ID列表（从待发送消息中提取）
  *
  * @async
@@ -648,7 +695,20 @@ async function buildAllChatHistoryInfo(triggeredContactIds, messageNumberMap, st
     // ✅ 检查返回类型：结构化消息（自定义API）还是 parts 数组（默认API）
     if (chatResult.structuredMessages) {
       // 🔥 自定义API：收集结构化消息数组（稍后在 buildMessagesArray 中插入）
-      allStructuredMessages.push(...chatResult.structuredMessages);
+      allStructuredMessages.push(...chatResult.structuredMessages.map(message => {
+        if (typeof message.content === 'string') {
+          return { ...message, content: compactSameCallLines(message.content) };
+        }
+        if (Array.isArray(message.content)) {
+          return {
+            ...message,
+            content: message.content.map(part => (part?.type === 'text' && typeof part.text === 'string'
+              ? { ...part, text: compactSameCallLines(part.text) }
+              : part)),
+          };
+        }
+        return message;
+      }));
       currentNumber = chatResult.nextNumber;
       logger.debug('phone','[ContextBuilder.buildAllChatHistoryInfo] 结构化消息已收集:', contact.name, '消息数量:', chatResult.structuredMessages.length);
 
@@ -659,10 +719,10 @@ async function buildAllChatHistoryInfo(triggeredContactIds, messageNumberMap, st
       }
     } else if (chatResult.parts && chatResult.parts.length > 0) {
       // ✅ 默认API：将 parts 数组转换为纯文本（保持向后兼容）
-      const contentText = chatResult.parts
+      const contentText = compactSameCallLines(chatResult.parts
         .filter(part => part.type === 'text')  // 只提取文本片段
         .map(part => part.text)
-        .join('');
+        .join(''));
 
       if (contentText.trim()) {
         allContent += contentText + '\n\n';
@@ -2015,7 +2075,7 @@ export async function buildHistoryChatInfo(contactId, contact, messageNumberMap)
   logger.debug('phone','[ContextBuilder] 历史聊天记录构建完成，共', historyMessages.length, '条');
 
   return {
-    content,
+    content: compactSameCallLines(content),
     nextNumber: currentNumber
   };
 }
