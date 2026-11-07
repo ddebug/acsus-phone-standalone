@@ -37,7 +37,7 @@ function diagnosticsText() {
   const error = shellError || status.error;
   return JSON.stringify({
     extension: 'acsus-phone-standalone',
-    version: '0.1.3',
+    version: '0.1.4',
     ready: status.ready, dirty: status.dirty, saving: status.saving,
     path: status.path,
     error: error ? errorKeyOf(error) : null,
@@ -226,7 +226,9 @@ function mountPanel() {
   ui('selfcheck').addEventListener('click', () => runAction(async () => {
     const { getChatSendSettings } = await import('./toolkit/phone/messages/message-chat-data.js');
     const chats = phoneData().chats || {};
-    const lines = [`原版手机入口：${originalPhonePresent() ? '存在（会抢事件）' : '无'}`, `电话系统启用：${phoneData().enabled !== false}`, `工作副本：${phone ? '已加载' : '未加载'}`];
+    const lines = [`原版手机入口：${originalPhonePresent() ? '存在（会抢事件）' : '无'}`, `电话系统启用：${phoneData().enabled !== false}`, `工作副本：${phone ? '已加载' : '未加载'}`, `API源：${phoneData().apiConfig?.source || 'default'}`];
+    const items = phoneData().promptPreset?.items || [];
+    lines.push(`预设条目：${items.length ? items.map(item => `${item.id}:${item.enabled ? '开' : '关'}`).join(', ') : '无（用内置默认）'}`);
     for (const [key, list] of Object.entries(chats)) {
       const id = key.replace(/^chat_/, '');
       const send = getChatSendSettings(id);
