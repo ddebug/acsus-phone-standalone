@@ -37,7 +37,7 @@ function diagnosticsText() {
   const error = shellError || status.error;
   return JSON.stringify({
     extension: 'acsus-phone-standalone',
-    version: '0.1.2',
+    version: '0.1.3',
     ready: status.ready, dirty: status.dirty, saving: status.saving,
     path: status.path,
     error: error ? errorKeyOf(error) : null,
@@ -199,6 +199,8 @@ function mountPanel() {
     <p class="standalone-phone-note">备份即使不含密钥，也包含私人聊天。导入只替换独立版，先备份当前独立文件，不删除原记录；默认不迁移 API 凭据。图片仅保留引用，并非随备份打包。不要在多台设备同时编辑；清理宿主“未使用的用户文件”前必须另存备份。</p>
     <button type="button" data-role="reload">刷新页面</button>
     <button type="button" data-role="copy-diagnostics">复制诊断信息</button>
+    <button type="button" data-role="selfcheck">上下文自检</button>
+    <pre data-role="selfcheck-output" class="standalone-phone-note"></pre>
   `;
   const target = document.querySelector('#extensions_settings2, #extensions_settings');
   if (!target) panel.classList.add('standalone-phone-floating');
@@ -221,6 +223,17 @@ function mountPanel() {
   }));
   ui('reload').addEventListener('click', () => location.reload());
   ui('copy-diagnostics').addEventListener('click', () => { void copyDiagnostics(); });
+  ui('selfcheck').addEventListener('click', () => runAction(async () => {
+    const { getChatSendSettings } = await import('./toolkit/phone/messages/message-chat-data.js');
+    const chats = phoneData().chats || {};
+    const lines = [`原版手机入口：${originalPhonePresent() ? '存在（会抢事件）' : '无'}`, `电话系统启用：${phoneData().enabled !== false}`, `工作副本：${phone ? '已加载' : '未加载'}`];
+    for (const [key, list] of Object.entries(chats)) {
+      const id = key.replace(/^chat_/, '');
+      const send = getChatSendSettings(id);
+      lines.push(`${id}: 共${Array.isArray(list) ? list.length : 0}条，注入最近${send.recentCount}/历史${send.historyCount}`);
+    }
+    ui('selfcheck-output').textContent = lines.join('\n');
+  }));
   ui('export').addEventListener('click', () => runAction(async () => {
     downloadJson(await exportPhoneBackup({ includeSecrets: ui('include-secrets').checked }));
   }));
