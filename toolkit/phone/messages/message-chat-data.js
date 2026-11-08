@@ -295,6 +295,13 @@ export async function saveChatHistory(contactId, messages) {
 
   saveSettingsDebounced();
 
+  // 删除/批量改写后立即落盘，避免只改了内存、重启又回来。
+  try {
+    await flushPhoneStorage();
+  } catch (error) {
+    logger.error('phone', '[ChatData] 批量保存聊天记录失败:', error);
+  }
+
   logger.debug('phone', '[ChatData] 批量保存聊天记录:', contactId, `共${messages.length}条`);
 }
 
