@@ -227,17 +227,17 @@ function buildCompactTimePrefix(list, index, msg, formatTimeForAI) {
 
 /**
  * 同一条 API 回复里的多条角色消息，在上下文里合并成一行：
- * 只保留第一个楼层号和说话人，后续气泡用“ / ”连接。
+ * 只保留一个时间和说话人，后续气泡用“ / ”连接。
  *
- * 只合并“没有时间前缀、且与上一行同一说话人”的编号行，
+ * 只合并“没有时间前缀、且与上一行同一说话人”的行，
  * 用户消息、跨天/跨时段消息都不受影响。
  */
 function compactSameCallLines(text) {
-  if (typeof text !== 'string' || !text.includes('[#')) return text;
+  if (typeof text !== 'string' || !text.includes(': ')) return text;
   const parseLine = line => {
-    const numbered = line.match(/^\[#(\d+)\] (.*)$/);
-    if (!numbered) return null;
-    let rest = numbered[2];
+    let rest = line;
+    const numbered = rest.match(/^\[#\d+\] (.*)$/);
+    if (numbered) rest = numbered[1];
     let hasTime = false;
     const time = rest.match(/^\[(?:\d{4}-\d{2}-\d{2}|\d{1,2}:\d{2})\]/);
     if (time) {
@@ -248,9 +248,7 @@ function compactSameCallLines(text) {
     const separator = rest.indexOf(': ');
     if (separator <= 0) return null;
     return {
-      number: numbered[1],
       hasTime,
-      raw: line,
       sender: rest.slice(0, separator),
       content: rest.slice(separator + 2),
     };
@@ -1075,7 +1073,7 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
 
         // ✅ 构建消息 content（文本 + 图片）
         const messageParts = [
-          { type: 'text', text: `[#${currentNumber}] ${timeStr}${senderName}: ${description}` },
+          { type: 'text', text: `${timeStr}${senderName}: ${description}` },
           { type: 'image_url', image_url: { url: msg.imageUrl } }  // 占位符，后续转base64
         ];
 
@@ -1119,7 +1117,7 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
           // 累积消息文本
           if (msg.id) {
             messageNumberMap.set(currentNumber, msg.id);
-            turnBuffer += `[#${currentNumber}] ${timeStr}${senderName}: ${messageContent}\n`;
+            turnBuffer += `${timeStr}${senderName}: ${messageContent}\n`;
           } else {
             turnBuffer += `${timeStr}${senderName}: ${messageContent}\n`;
           }
@@ -1138,7 +1136,7 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
           // 累积到 textBuffer
           if (msg.id) {
             messageNumberMap.set(currentNumber, msg.id);
-            textBuffer += `[#${currentNumber}] ${timeStr}${senderName}: ${messageContent}\n`;
+            textBuffer += `${timeStr}${senderName}: ${messageContent}\n`;
             currentNumber++;
           } else {
             textBuffer += `${timeStr}${senderName}: ${messageContent}\n`;
@@ -1161,7 +1159,7 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
       // 累积消息文本
       if (msg.id) {
         messageNumberMap.set(currentNumber, msg.id);
-        turnBuffer += `[#${currentNumber}] ${timeStr}${senderName}: ${messageContent}\n`;
+        turnBuffer += `${timeStr}${senderName}: ${messageContent}\n`;
       } else {
         turnBuffer += `${timeStr}${senderName}: ${messageContent}\n`;
       }
@@ -1181,7 +1179,7 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
       // 累积到 textBuffer
       if (msg.id) {
         messageNumberMap.set(currentNumber, msg.id);
-        textBuffer += `[#${currentNumber}] ${timeStr}${senderName}: ${messageContent}\n`;
+        textBuffer += `${timeStr}${senderName}: ${messageContent}\n`;
         currentNumber++;
       } else {
         textBuffer += `${timeStr}${senderName}: ${messageContent}\n`;
@@ -1390,7 +1388,7 @@ export async function buildChatHistoryInfo(contactId, contact, messageNumberMap,
         messageNumberMap.set(currentNumber, msg.id);
         parts.push({
           type: 'text',
-          text: `[#${currentNumber}] ${timeStr}${senderName}: ${messagePrefix}${messageContent}`
+          text: `${timeStr}${senderName}: ${messagePrefix}${messageContent}`
         });
         currentNumber++;
 
@@ -1460,21 +1458,13 @@ function formatQuotedMessageForAI(quotedMessage) {
 }
 
 /**
- * 格式化引用：被引用的消息如果已经在当前上下文里，只写楼层号，
- * 避免把原文再插一遍；不在窗口内时才退回短文本（超长截断）。
+ * 格式化引用：只保留短文本，避免把原文整段再插一遍。
  *
  * @private
  * @param {Object} quotedMessage - 被引用的消息
- * @param {Map<number, string>} messageNumberMap - 楼层号 → 消息ID
  * @returns {string} 引用前缀
  */
-function formatQuoteReference(quotedMessage, messageNumberMap) {
-  const quotedId = quotedMessage?.id || quotedMessage?.messageId;
-  if (quotedId && messageNumberMap instanceof Map) {
-    for (const [number, messageId] of messageNumberMap) {
-      if (messageId === quotedId) return `[引用#${number}]`;
-    }
-  }
+function formatQuoteReference(quotedMessage) {
   const text = formatQuotedMessageForAI(quotedMessage);
   const shortText = text.length > 40 ? `${text.slice(0, 40)}…` : text;
   return `[引用]${shortText}`;
@@ -2081,7 +2071,7 @@ export async function buildHistoryChatInfo(contactId, contact, messageNumberMap)
     // ✅ 添加临时编号 + 保存映射
     if (msg.id) {
       messageNumberMap.set(currentNumber, msg.id);
-      content += `[#${currentNumber}] ${timeStr}${senderName}: ${messageContent}\n`;
+      content += `${timeStr}${senderName}: ${messageContent}\n`;
       currentNumber++;
     } else {
       // 旧数据兼容：没有ID的消息不加编号
