@@ -145,7 +145,8 @@ export function getDiaryMap(contactId, messages = null) {
   const entries = loadDiaryEntries(contactId);
   const validDates = messages ? new Set(getDiaryDayStatuses(messages, entries)
     .filter(day => day.status === 'summarized').map(day => day.date)) : null;
-  return new Map(entries.filter(entry => !validDates || validDates.has(entry.date)).map(entry => [entry.date, entry]));
+  return new Map(entries.filter(entry => entry.useOriginal !== true &&
+    (!validDates || validDates.has(entry.date))).map(entry => [entry.date, entry]));
 }
 
 /**
@@ -181,6 +182,8 @@ export async function saveDiaryEntries(contactId, entries) {
       toTime: Number.isFinite(Number(entry.toTime)) ? Number(entry.toTime) : null,
       messageCount: Number.isFinite(Number(entry.messageCount)) ? Number(entry.messageCount) : null,
       sourceFingerprint: entry.sourceFingerprint || '',
+      // 重写日记不能偷偷恢复替换原文；模式只由用户的逐日开关决定。
+      useOriginal: old?.useOriginal === true,
       createdAt: old?.createdAt || now,
       updatedAt: now,
     };
@@ -201,6 +204,23 @@ export async function saveDiaryEntries(contactId, entries) {
     throw error;
   }
   return saved;
+}
+
+/** 切换本日上下文来源，只改替换模式，不删除/改写日记正文或原消息。 */
+export async function setDiaryUseOriginal(contactId, date, useOriginal) {
+  const store = ensureDiaryData().diaries[contactId];
+  const entries = Array.isArray(store?.entries) ? store.entries : [];
+  const index = entries.findIndex(entry => entry.date === date);
+  if (!DATE_PATTERN.test(String(date)) || index < 0) throw new Error('未找到这一天的日记');
+  const previous = entries[index];
+  entries[index] = { ...previous, useOriginal: Boolean(useOriginal) };
+  try {
+    saveSettingsDebounced();
+    await persist();
+  } catch (error) {
+    entries[index] = previous;
+    throw error;
+  }
 }
 
 /** 删除某一天的日记。 */

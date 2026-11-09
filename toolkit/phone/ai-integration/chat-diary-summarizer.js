@@ -77,15 +77,7 @@ async function countTextTokens(text, context) {
   return { count: Math.ceil(new TextEncoder().encode(text).length / 3.35), estimated: true, source: 'heuristic' };
 }
 
-/**
- * 统计每一天在日记请求中的原始聊天文本；不包含角色卡/提示词/协议或图片视觉 token。
- * 优先宿主当前模型 tokenizer，失败回退明确标注的估算；不调用模型生成。
- */
-export async function getDiaryTokenCounts(contactId, { onUpdate = () => {} } = {}) {
-  const history = JSON.parse(JSON.stringify((await loadChatHistory(contactId)).filter(message => !message.excluded)));
-  const contact = (await loadContacts()).find(item => item.id === contactId);
-  const userName = getUserDisplayName();
-  const contactName = contact?.name || contactId;
+function getTokenContext() {
   let context = null;
   let modelKey = 'unavailable';
   try {
@@ -101,23 +93,52 @@ export async function getDiaryTokenCounts(contactId, { onUpdate = () => {} } = {
       modelFields(context.chatCompletionSettings), modelFields(context.textCompletionSettings),
     ]);
   } catch { /* 兼容未提供 tokenizer 的旧宿主。 */ }
+  return { context, modelKey };
+}
+
+async function getCachedTokenCount(key, text, context) {
+  let cached = tokenCache.get(key);
+  if (!cached || cached.expires < Date.now()) {
+    if (tokenCache.size >= 256) tokenCache.delete(tokenCache.keys().next().value);
+    cached = { expires: Date.now() + 300000, promise: countTextTokens(text, context) };
+    tokenCache.set(key, cached);
+  }
+  const count = await cached.promise;
+  if (count.source === 'heuristic') cached.expires = Math.min(cached.expires, Date.now() + 30000);
+  return count;
+}
+
+/** 每天的原始聊天文本计数，与日记生成请求共用同一文本格式。 */
+export async function getDiaryTokenCounts(contactId, { onUpdate = () => {} } = {}) {
+  const history = JSON.parse(JSON.stringify((await loadChatHistory(contactId)).filter(message => !message.excluded)));
+  const contact = (await loadContacts()).find(item => item.id === contactId);
+  const userName = getUserDisplayName();
+  const contactName = contact?.name || contactId;
+  let { context, modelKey } = getTokenContext();
   const counts = new Map();
   for (const [date, messages] of groupMessagesByDate(history)) {
     const key = JSON.stringify([contactId, date, userName, contactName, modelKey, getDiarySourceFingerprint(messages)]);
-    let cached = tokenCache.get(key);
-    if (!cached || cached.expires < Date.now()) {
-      if (tokenCache.size >= 256) tokenCache.delete(tokenCache.keys().next().value);
-      cached = { expires: Date.now() + 300000, promise: countTextTokens(formatTranscript(messages, userName, contactName), context) };
-      tokenCache.set(key, cached);
-    }
-    const count = await cached.promise;
-    if (count.source === 'heuristic') {
-      cached.expires = Math.min(cached.expires, Date.now() + 30000);
-      // 一次失败后，本轮其余日期直接估算，避免每一天都等 tokenizer 超时。
-      context = null;
-    }
+    const count = await getCachedTokenCount(key, formatTranscript(messages, userName, contactName), context);
+    // 一次失败后，本轮其余日期直接估算，避免每一天都等 tokenizer 超时。
+    if (count.source === 'heuristic') context = null;
     counts.set(date, count);
     onUpdate(date, count);
+  }
+  return counts;
+}
+
+/** 统计已有日记正文（不含日期包装），正文变化即换缓存键；与原文计数独立。 */
+export async function getDiarySummaryTokenCounts(contactId, { onUpdate = () => {} } = {}) {
+  const entries = loadDiaryEntries(contactId).map(entry => ({ date: entry.date, content: entry.content }));
+  let { context, modelKey } = getTokenContext();
+  const counts = new Map();
+  for (const entry of entries) {
+    const text = String(entry.content || '');
+    const key = JSON.stringify(['summary', contactId, entry.date, modelKey, getDiarySourceFingerprint(text)]);
+    const count = await getCachedTokenCount(key, text, context);
+    if (count.source === 'heuristic') context = null;
+    counts.set(entry.date, count);
+    onUpdate(entry.date, count);
   }
   return counts;
 }
