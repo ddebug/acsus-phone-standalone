@@ -1,135 +1,127 @@
-/**
- * 聊天日记页面
- * @module phone/messages/chat-diary-ui
- *
- * @description
- * 按天展示待总结、消息太少而跳过的日期及已有日记；
- * 每次生成操作只提交一个请求，原始聊天记录始终保留。
- */
-
+/** 聊天日记：可编辑提示词、按日多选及聊天文本 token 估算。 */
 import logger from '../../../logger.js';
 import {
-  DIARY_SKIP_THRESHOLD,
-  getDiaryDayStatuses,
-  loadDiaryEntries,
-  removeDiaryEntry,
-  isDiaryEnabled,
-  setDiaryEnabled,
+  DIARY_SKIP_THRESHOLD, getDiaryDayStatuses, loadDiaryEntries, removeDiaryEntry,
+  isDiaryEnabled, setDiaryEnabled, getDiaryPrompt, setDiaryPrompt, DEFAULT_DIARY_PROMPT,
 } from './chat-diary-data.js';
 import { loadChatHistory } from './message-chat-data.js';
-import { generateDiaries } from '../ai-integration/chat-diary-summarizer.js';
+import { generateDiaries, getDiaryTokenCounts } from '../ai-integration/chat-diary-summarizer.js';
 import { loadContacts } from '../contacts/contact-list-data.js';
 import { showConfirmPopup } from '../utils/popup-helper.js';
 import { showSuccessToast, showErrorToast } from '../ui-components/toast-notification.js';
 
-// 确认弹窗、生成、删除和设置共用同一把锁，跨页面实例也不能重叠操作。
 let busy = false;
+let promptDraft = null; // 页面重开仍保留尚未保存的编辑；刷新宿主前请点击保存。
 const views = new WeakMap();
 
-/**
- * 渲染聊天日记页
- * @param {Object} params - 页面参数
- * @param {string} params.contactId - 联系人ID
- * @returns {Promise<DocumentFragment>} 页面片段
- */
-export async function renderChatDiaryPage(params) {
-  const { contactId } = params;
-  logger.debug('phone', '[ChatDiary] 渲染日记页:', contactId);
-
+export async function renderChatDiaryPage({ contactId }) {
   const fragment = document.createDocumentFragment();
   const container = document.createElement('div');
   container.className = 'chat-diary-page';
   container.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--phone-bg-main,#f0f0f2);';
   container.dataset.contactId = contactId;
-
-  let contactName = '聊天';
-  try {
-    const contacts = await loadContacts();
-    contactName = contacts.find(item => item.id === contactId)?.name || contactName;
-  } catch (error) {
-    logger.error('phone', '[ChatDiary] 读取联系人失败:', error);
-  }
-
-  const topBar = document.createElement('div');
-  topBar.className = 'chat-settings-topbar';
-  topBar.innerHTML = `
-    <button class="chat-settings-back-btn" type="button"><i class="fa-solid fa-chevron-left"></i></button>
-    <div class="chat-settings-title">${escapeHtml(contactName)}的日记</div>
-  `;
-  topBar.querySelector('.chat-settings-back-btn').addEventListener('click', handleBack);
-  container.appendChild(topBar);
-
-  const content = document.createElement('div');
-  content.className = 'chat-settings-content';
-  content.style.cssText += 'flex:1;overflow-y:auto;padding:12px;';
-  container.appendChild(content);
-
-  const toolbar = document.createElement('div');
-  toolbar.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:12px;';
-  toolbar.innerHTML = `
-    <label style="display:flex;gap:8px;align-items:center;font-size:13px;">
-      <input type="checkbox" data-role="diary-enabled">
-      <span>在上下文里用日记替换原始聊天记录</span>
-    </label>
-    <div style="font-size:12px;line-height:1.6;opacity:.8;">每次总结仅发送一次 API 请求，携带完整聊天历史。每天 ≤${DIARY_SKIP_THRESHOLD} 条消息的日期跳过，不删除原始聊天。</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <button type="button" data-role="generate-missing" class="menu_button">一键总结全部待总结（一次 API 请求）</button>
-      <button type="button" data-role="generate-all" class="menu_button">全部重写（一次 API 请求）</button>
+  const contact = (await loadContacts()).find(item => item.id === contactId);
+  container.innerHTML = `
+    <div class="chat-settings-topbar">
+      <button type="button" class="chat-settings-back-btn" data-role="back" aria-label="返回"><i class="fa-solid fa-chevron-left"></i></button>
+      <div class="chat-settings-title">${escapeHtml(contact?.name || '聊天')}的日记</div>
     </div>
-    <div data-role="diary-status" role="status" aria-live="polite" style="font-size:12px;opacity:.8;white-space:pre-wrap;">正在读取日期状态…</div>
-  `;
-  content.appendChild(toolbar);
-
-  const dayStatuses = document.createElement('div');
-  dayStatuses.dataset.role = 'diary-day-statuses';
-  dayStatuses.style.cssText = 'margin-bottom:16px;font-size:13px;line-height:1.7;';
-  content.appendChild(dayStatuses);
-
-  const list = document.createElement('div');
-  list.dataset.role = 'diary-list';
-  content.appendChild(list);
-
-  const enabledInput = /** @type {HTMLInputElement} */ (toolbar.querySelector('[data-role="diary-enabled"]'));
-  const ui = { container, contactId, toolbar, dayStatuses, list, enabledInput, loading: true, dataReady: false };
+    <div class="chat-settings-content" style="flex:1;overflow-y:auto;padding:12px;">
+      <div data-role="toolbar" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+        <label><input type="checkbox" data-role="diary-enabled"> 在上下文里用日记替换原始聊天记录</label>
+        <details data-role="prompt-editor" style="background:var(--phone-bg-card,#fff);border-radius:8px;padding:10px;">
+          <summary>总结提示词（点击编辑）</summary>
+          <p style="font-size:12px;opacity:.8;">可自行修改写法、篇幅、是否引用原话。保存后全手机共用；JSON 分日保存协议由插件追加，无需在这里写。只改变今后生成的日记。</p>
+          <textarea data-role="prompt" aria-label="总结提示词" rows="12" style="width:100%;box-sizing:border-box;resize:vertical;min-height:180px;"></textarea>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" data-role="save-prompt">保存提示词</button>
+            <button type="button" data-role="reset-prompt">恢复默认到编辑框</button>
+          </div>
+          <div data-role="prompt-status" style="font-size:12px;opacity:.8;"></div>
+        </details>
+        <div style="font-size:12px;line-height:1.6;opacity:.8;">选日期决定写哪几天，不限制背景：每次生成仍带角色资料和该联系人的全部未排除原始历史，且只发送一次模型生成请求。每天 ≤${DIARY_SKIP_THRESHOLD} 条跳过。</div>
+        <div style="font-size:12px;line-height:1.6;opacity:.8;">日期后的 token 是当天原始聊天文本估算，不含角色卡、总结提示词、请求包装或图片视觉 token，不等于实际计费。统计会调用宿主分词接口，不生成回复。</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" data-role="generate-selected">总结勾选日期</button>
+          <button type="button" data-role="select-pending">勾选全部待总结</button>
+          <button type="button" data-role="clear-selection">清空勾选</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" data-role="generate-missing">一键总结全部待总结</button>
+          <button type="button" data-role="generate-all">全部重写</button>
+          <button type="button" data-role="refresh">刷新日期与 token</button>
+        </div>
+        <div data-role="diary-status" role="status" aria-live="polite" style="font-size:12px;opacity:.8;white-space:pre-wrap;">正在读取日期…</div>
+      </div>
+      <div data-role="diary-days" style="font-size:13px;line-height:1.7;"></div>
+      <div data-role="diary-list" style="margin-top:16px;"></div>
+    </div>`;
+  const find = role => container.querySelector(`[data-role="${role}"]`);
+  const ui = {
+    container, contactId, find,
+    prompt: find('prompt'), enabled: find('diary-enabled'), days: find('diary-days'), list: find('diary-list'),
+    selected: new Set(), statuses: [], entries: [], tokens: new Map(), tokenNodes: new Map(),
+    tokenRun: 0, loading: true, ready: false,
+  };
   views.set(container, ui);
-  enabledInput.checked = isDiaryEnabled();
-  enabledInput.addEventListener('change', () => {
-    const enabled = enabledInput.checked;
-    if (busy) {
-      enabledInput.checked = isDiaryEnabled();
-      return;
-    }
+  ui.prompt.value = promptDraft ?? getDiaryPrompt();
+  ui.enabled.checked = isDiaryEnabled();
+  ui.prompt.addEventListener('input', () => {
+    promptDraft = ui.prompt.value;
+    syncControls(ui);
+  });
+  find('save-prompt').addEventListener('click', () => void runAction(ui, async () => {
+    await savePrompt(ui);
+    setStatus(ui, '总结提示词已保存；下次生成会使用它。');
+  }));
+  find('reset-prompt').addEventListener('click', () => {
+    if (busy || ui.loading) return;
+    ui.prompt.value = DEFAULT_DIARY_PROMPT;
+    promptDraft = ui.prompt.value;
+    find('prompt-editor').open = true;
+    syncControls(ui);
+  });
+  find('back').addEventListener('click', () => void runAction(ui, async () => {
+    const { hidePage } = await import('../phone-main-ui.js');
+    hidePage(document.querySelector('.phone-overlay'), 'chat-diary');
+  }));
+  ui.enabled.addEventListener('change', () => {
+    const enabled = ui.enabled.checked;
     void runAction(ui, async () => {
       await setDiaryEnabled(enabled);
-      setStatus(ui, enabled ? '已启用：历史记录会用日记替代。' : '已关闭：上下文仍发送原始聊天记录。');
-    }, { failureText: '日记设置保存失败' });
-  });
-
-  toolbar.querySelector('[data-role="generate-missing"]').addEventListener('click', () => {
-    if (!ui.dataReady || ui.loading) return;
-    void runGenerate(ui, { dates: null, regenerate: false });
-  });
-  toolbar.querySelector('[data-role="generate-all"]').addEventListener('click', () => {
-    if (!ui.dataReady || ui.loading) return;
-    void runGenerate(ui, { dates: null, regenerate: true }, {
-      title: '全部重写日记',
-      message: `将用完整聊天历史，在一次 API 请求中重写全部符合条件的日期（每天 >${DIARY_SKIP_THRESHOLD} 条消息），覆盖已有日记并消耗额度。原始聊天不会删除，确定继续？`,
+      setStatus(ui, enabled ? '已启用日记替换。' : '已关闭日记替换，继续使用原始历史。');
     });
   });
-
+  find('select-pending').addEventListener('click', () => {
+    if (busy || ui.loading) return;
+    ui.selected = new Set(ui.statuses.filter(day => day.status === 'pending').map(day => day.date));
+    renderDays(ui);
+    syncControls(ui);
+  });
+  find('clear-selection').addEventListener('click', () => {
+    if (busy || ui.loading) return;
+    ui.selected.clear();
+    renderDays(ui);
+    syncControls(ui);
+  });
+  find('generate-selected').addEventListener('click', () => {
+    const dates = [...ui.selected].sort();
+    if (dates.length) void runGenerate(ui, { dates, regenerate: true });
+  });
+  find('generate-missing').addEventListener('click', () => void runGenerate(ui, { dates: null, regenerate: false }));
+  find('generate-all').addEventListener('click', () => void runGenerate(ui, { dates: null, regenerate: true }));
+  find('refresh').addEventListener('click', () => void runAction(ui, async () => {
+    setStatus(ui, '已刷新日期，正在更新 token 估算。');
+  }, { refresh: true }));
   try {
     await refreshView(ui);
-    setStatus(ui, '日期状态已加载；可一键总结全部待总结日期。');
-  } catch (error) {
-    reportError(ui, '日期状态读取失败', error);
-  }
+    setStatus(ui, '可勾选多个日期，或点击某天的“总结”；编辑提示词后请保存。');
+  } catch (error) { reportError(ui, error); }
   fragment.appendChild(container);
   return fragment;
 }
 
-function setStatus(ui, text) {
-  ui.toolbar.querySelector('[data-role="diary-status"]').textContent = text;
-}
+function setStatus(ui, text) { ui.find('diary-status').textContent = text; }
 
 function syncControls(current) {
   const containers = new Set(document.querySelectorAll('.chat-diary-page'));
@@ -137,208 +129,206 @@ function syncControls(current) {
   for (const container of containers) {
     const ui = views.get(container);
     if (!ui) continue;
-    for (const control of container.querySelectorAll('button, input')) {
+    const eligible = ui.statuses.filter(day => day.status !== 'skipped');
+    const pending = eligible.filter(day => day.status === 'pending');
+    ui.find('generate-selected').textContent = `总结勾选日期（${ui.selected.size} 天 / 一次请求）`;
+    ui.find('generate-selected').dataset.unavailable = String(!ui.ready || ui.selected.size === 0);
+    ui.find('clear-selection').dataset.unavailable = String(ui.selected.size === 0);
+    ui.find('select-pending').dataset.unavailable = String(!ui.ready || !pending.length);
+    ui.find('generate-missing').dataset.unavailable = String(!ui.ready || !pending.length);
+    ui.find('generate-all').dataset.unavailable = String(!ui.ready || !eligible.length);
+    const dirty = ui.prompt.value !== getDiaryPrompt();
+    ui.find('prompt-status').textContent = dirty ? '有未保存的修改；生成前会询问是否保存。' : '已保存（全手机共用）';
+    ui.find('save-prompt').dataset.unavailable = String(!dirty || !ui.prompt.value.trim());
+    for (const control of container.querySelectorAll('button, input, textarea')) {
       control.disabled = busy || ui.loading || control.dataset.unavailable === 'true';
     }
   }
 }
 
-function reportError(ui, label, error) {
-  logger.error('phone', `[ChatDiary] ${label}:`, error);
-  setStatus(ui, `${label}：${error?.message || error}`);
-  showErrorToast(label);
+function reportError(ui, error) {
+  logger.warn('phone', '[ChatDiary] 操作未完成:', error?.message || '未知错误');
+  setStatus(ui, `操作未完成：${error?.message || '未知错误'}`);
+  showErrorToast(error?.message || '日记操作失败');
 }
 
-async function runAction(ui, action, { refresh = false, failureText = '操作失败' } = {}) {
+async function runAction(ui, action, { refresh = false } = {}) {
   if (busy || ui.loading) return;
   busy = true;
   syncControls(ui);
-  try {
-    await action();
-  } catch (error) {
-    reportError(ui, failureText, error);
-  } finally {
+  try { await action(); }
+  catch (error) { reportError(ui, error); }
+  finally {
     try {
-      if (refresh) {
-        try {
-          await refreshView(ui);
-        } catch (error) {
-          logger.error('phone', '[ChatDiary] 刷新日期状态失败:', error);
-          const status = ui.toolbar.querySelector('[data-role="diary-status"]');
-          status.textContent += `\n日期状态刷新失败：${error?.message || error}`;
-          showErrorToast('日期状态刷新失败，请重新打开日记页');
-        }
-      }
-      ui.enabledInput.checked = isDiaryEnabled();
-    } finally {
+      if (refresh) await refreshView(ui);
+    } catch (error) { reportError(ui, error); }
+    finally {
+      ui.enabled.checked = isDiaryEnabled();
       busy = false;
       syncControls(ui);
     }
   }
 }
 
-async function runGenerate(ui, { dates, regenerate }, confirmation) {
+async function savePrompt(ui) {
+  const text = ui.prompt.value;
+  await setDiaryPrompt(text);
+  promptDraft = null;
+  syncControls(ui);
+  showSuccessToast('总结提示词已保存');
+}
+
+async function ensureSavedPrompt(ui) {
+  if (ui.prompt.value === getDiaryPrompt()) return true;
+  const confirmed = await showConfirmPopup('提示词尚未保存', '先保存编辑框内的提示词，再按它生成日记？取消不会调用模型。', { okButton: '保存并继续' });
+  if (!confirmed) return false;
+  await savePrompt(ui);
+  return true;
+}
+
+async function runGenerate(ui, options) {
+  if (!ui.ready) return;
   await runAction(ui, async () => {
-    if (confirmation) {
-      const confirmed = await showConfirmPopup(confirmation.title, confirmation.message, { okButton: '重写' });
+    const targets = ui.statuses.filter(day => day.status !== 'skipped' &&
+      (!Array.isArray(options.dates) || options.dates.includes(day.date)) &&
+      (options.regenerate || day.status === 'pending'));
+    if (!targets.length) { setStatus(ui, '没有符合条件的日期，不发送请求。'); return; }
+    const existingDates = new Set(ui.entries.map(entry => entry.date));
+    const overwritten = targets.filter(day => existingDates.has(day.date));
+    if (overwritten.length) {
+      const confirmed = await showConfirmPopup('覆盖已有日记', `本次会覆盖 ${overwritten.map(day => day.date).join('、')} 的日记；原始聊天保留。所有目标日期共用一次生成请求，继续？`, { okButton: '继续' });
       if (!confirmed) return;
     }
-    setStatus(ui, '正在准备完整聊天历史（本次操作仅发送一次 API 请求）…');
+    if (!await ensureSavedPrompt(ui)) return;
+    setStatus(ui, '正在准备完整历史…');
     const result = await generateDiaries(ui.contactId, {
-      dates,
-      regenerate,
+      ...options,
       onProgress: info => {
-        const stages = {
-          preparing: '正在准备完整聊天历史',
-          requesting: '正在发送一次 API 请求并等待全部日记',
-          saving: '正在保存日记',
-        };
-        const targetDates = Array.isArray(info.dates) ? info.dates : [];
-        const total = info.total ?? targetDates.length;
-        setStatus(ui, `${stages[info.stage] || '正在整理日记'}（${total} 天）…${targetDates.length ? `\n目标日期：${targetDates.join('、')}` : ''}`);
+        const label = { preparing: '准备完整历史', requesting: '已提交一次生成请求，等待日记', saving: '正在保存日记' }[info.stage] || '正在整理';
+        setStatus(ui, `${label}（${info.total} 天）\n${(info.dates || []).join('、')}`);
       },
     });
+    for (const date of result.updated) ui.selected.delete(date);
     const lines = [];
-    if (result.updated.length) lines.push(`已生成 ${result.updated.length} 天：${result.updated.join('、')}`);
-    if (result.skipped.length) lines.push(`跳过（每天 ≤${DIARY_SKIP_THRESHOLD} 条消息）：${result.skipped.join('、')}`);
-    if (result.failed.length) lines.push(`失败：${result.failed.map(item => `${item.date}（${item.error}）`).join('、')}`);
-    setStatus(ui, lines.length ? lines.join('\n') : '没有需要整理的日期。');
-    if (result.updated.length) showSuccessToast(`日记已生成 ${result.updated.length} 天`);
-    if (result.failed.length) showErrorToast('部分日记生成失败，可稍后重试');
-  }, { refresh: true, failureText: '日记生成失败' });
+    if (result.updated.length) { lines.push(`已生成：${result.updated.join('、')}`); showSuccessToast(`已生成 ${result.updated.length} 天日记`); }
+    if (result.skipped.length) lines.push(`≤${DIARY_SKIP_THRESHOLD} 条，跳过：${result.skipped.join('、')}`);
+    if (result.failed.length) { lines.push(`未保存：${result.failed.map(item => item.date).join('、')}\n${result.failed[0].error}`); showErrorToast('日记生成或保存未完成'); }
+    setStatus(ui, lines.join('\n') || '没有需要生成的日期。');
+  }, { refresh: true });
 }
 
 async function refreshView(ui) {
   ui.loading = true;
-  ui.dataReady = false;
+  ui.ready = false;
+  const run = ++ui.tokenRun;
   syncControls(ui);
   try {
-    // 先展示已有日记；即使历史读取失败，也保留可见的日记内容。
-    renderEntries(ui, loadDiaryEntries(ui.contactId));
-    syncControls(ui);
     const messages = await loadChatHistory(ui.contactId);
-    const entries = loadDiaryEntries(ui.contactId);
-    const statuses = getDiaryDayStatuses(messages, entries);
-    renderDayStatuses(ui, statuses);
-    renderEntries(ui, entries);
-    ui.dataReady = true;
+    ui.entries = loadDiaryEntries(ui.contactId);
+    ui.statuses = getDiaryDayStatuses(messages, ui.entries);
+    const eligible = new Set(ui.statuses.filter(day => day.status !== 'skipped').map(day => day.date));
+    ui.selected = new Set([...ui.selected].filter(date => eligible.has(date)));
+    ui.tokens.clear();
+    renderDays(ui);
+    renderEntries(ui);
+    ui.ready = true;
+    // 后台仅统计 token；不锁住日期选择，也不会触发模型生成。
+    void getDiaryTokenCounts(ui.contactId, {
+      onUpdate: (date, count) => {
+        if (run !== ui.tokenRun) return;
+        ui.tokens.set(date, count);
+        const node = ui.tokenNodes.get(date);
+        if (node) node.textContent = formatTokens(count);
+      },
+    }).catch(() => {
+      if (run !== ui.tokenRun) return;
+      for (const [date, node] of ui.tokenNodes) if (!ui.tokens.has(date)) node.textContent = 'token 统计暂不可用';
+    });
   } finally {
     ui.loading = false;
-    if (!ui.dataReady) {
-      ui.dayStatuses.textContent = '日期状态暂不可用，请重新打开日记页。';
-      ui.toolbar.querySelector('[data-role="generate-missing"]').dataset.unavailable = 'true';
-      ui.toolbar.querySelector('[data-role="generate-all"]').dataset.unavailable = 'true';
-    }
     syncControls(ui);
   }
 }
 
-function renderDayStatuses(ui, statuses) {
-  const pending = statuses.filter(day => day.status === 'pending');
-  const skipped = statuses.filter(day => day.status === 'skipped');
-  const summarized = statuses.filter(day => day.status === 'summarized');
-  ui.dayStatuses.innerHTML = '';
-
-  const summary = document.createElement('div');
-  summary.textContent = `待总结 ${pending.length} 天 · 已总结 ${summarized.length} 天 · 消息太少跳过 ${skipped.length} 天`;
-  summary.style.cssText = 'font-weight:600;margin-bottom:8px;';
-  ui.dayStatuses.appendChild(summary);
-  appendDateGroup(ui.dayStatuses, `待总结日期（${pending.length} 天）`, pending, '当前没有待总结日期。');
-  appendDateGroup(ui.dayStatuses, `跳过日期（每天 ≤${DIARY_SKIP_THRESHOLD} 条消息，共 ${skipped.length} 天）`, skipped, '没有因消息太少而跳过的日期。');
-
-  const missingButton = ui.toolbar.querySelector('[data-role="generate-missing"]');
-  missingButton.textContent = `一键总结全部待总结（${pending.length} 天 / 一次 API 请求）`;
-  missingButton.dataset.unavailable = String(pending.length === 0);
-  ui.toolbar.querySelector('[data-role="generate-all"]').dataset.unavailable = String(!statuses.some(day => day.messageCount > DIARY_SKIP_THRESHOLD));
+function formatTokens(count) {
+  if (!count || !Number.isFinite(count.count)) return 'token 计算中…';
+  return `${count.estimated ? '约 ' : ''}${count.count.toLocaleString()} tokens${count.source === 'heuristic' ? '（粗估）' : ''}`;
 }
 
-function appendDateGroup(parent, title, days, emptyText) {
-  const section = document.createElement('section');
-  section.style.cssText = 'background:var(--phone-bg-card,#fff);border-radius:10px;padding:10px 12px;margin-bottom:8px;';
+function renderDays(ui) {
+  ui.days.replaceChildren();
+  ui.tokenNodes.clear();
   const heading = document.createElement('strong');
-  heading.textContent = title;
-  section.appendChild(heading);
-  if (!days.length) {
-    const empty = document.createElement('div');
-    empty.style.opacity = '.7';
-    empty.textContent = emptyText;
-    section.appendChild(empty);
-  }
-  for (const day of days) {
+  const pending = ui.statuses.filter(day => day.status === 'pending').length;
+  heading.textContent = `按日期选择 · ${pending} 天待总结`;
+  ui.days.appendChild(heading);
+  const existing = new Set(ui.entries.map(entry => entry.date));
+  for (const day of ui.statuses) {
     const row = document.createElement('div');
-    row.textContent = `${day.date} · ${day.messageCount} 条消息${day.status === 'skipped' ? ' · 跳过，不生成日记' : ' · 待总结'}`;
-    section.appendChild(row);
+    row.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--phone-bg-card,#fff);border-radius:8px;padding:8px;margin-top:6px;';
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:6px;flex:1;min-width:170px;';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = ui.selected.has(day.date);
+    checkbox.dataset.unavailable = String(day.status === 'skipped');
+    checkbox.setAttribute('aria-label', `选择 ${day.date}`);
+    checkbox.addEventListener('change', () => {
+      if (busy || ui.loading) return;
+      if (checkbox.checked) ui.selected.add(day.date); else ui.selected.delete(day.date);
+      syncControls(ui);
+    });
+    label.appendChild(checkbox);
+    const text = document.createElement('span');
+    const state = { pending: '待总结', summarized: '已总结', skipped: `≤${DIARY_SKIP_THRESHOLD} 条，跳过` }[day.status];
+    text.textContent = `${day.date} · ${day.messageCount} 条 · ${state}`;
+    label.appendChild(text);
+    row.appendChild(label);
+    const tokens = document.createElement('span');
+    tokens.style.cssText = 'font-size:12px;opacity:.8;';
+    tokens.textContent = formatTokens(ui.tokens.get(day.date));
+    ui.tokenNodes.set(day.date, tokens);
+    row.appendChild(tokens);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = existing.has(day.date) ? '重写当天' : '总结当天';
+    button.dataset.unavailable = String(day.status === 'skipped');
+    button.addEventListener('click', () => void runGenerate(ui, { dates: [day.date], regenerate: true }));
+    row.appendChild(button);
+    ui.days.appendChild(row);
   }
-  parent.appendChild(section);
+  if (!ui.statuses.length) ui.days.appendChild(document.createTextNode(' 没有可显示日期的聊天记录。'));
 }
 
-function renderEntries(ui, entries) {
-  ui.list.innerHTML = '';
-  const heading = document.createElement('div');
-  heading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:8px;';
-  heading.textContent = `已有日记（${entries.length} 天）`;
+function renderEntries(ui) {
+  ui.list.replaceChildren();
+  const heading = document.createElement('strong');
+  heading.textContent = `已有日记（${ui.entries.length} 天）`;
   ui.list.appendChild(heading);
-  if (!entries.length) {
-    const empty = document.createElement('div');
-    empty.style.cssText = 'font-size:13px;opacity:.7;padding:8px 0;';
-    empty.textContent = '还没有日记。上方可查看待总结日期，并一次请求生成全部日记。';
-    ui.list.appendChild(empty);
-    return;
-  }
-  for (const entry of [...entries].reverse()) {
-    const item = document.createElement('div');
-    item.style.cssText = 'background:var(--phone-bg-card,#fff);border-radius:10px;padding:10px 12px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.08);';
-    const count = entry.messageCount != null ? `（${escapeHtml(entry.messageCount)} 条聊天）` : '';
-    item.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-        <strong style="font-size:14px;">${escapeHtml(entry.date)}${count}</strong>
-        <div style="display:flex;gap:6px;">
-          <button type="button" data-role="rewrite" style="font-size:12px;">重写</button>
-          <button type="button" data-role="delete" style="font-size:12px;color:#c0392b;">删除</button>
-        </div>
-      </div>
-      <div style="white-space:pre-wrap;line-height:1.6;font-size:13px;margin-top:8px;">${escapeHtml(entry.content)}</div>
-    `;
-    item.querySelector('[data-role="rewrite"]').addEventListener('click', () => {
-      void runGenerate(ui, { dates: [entry.date], regenerate: true }, {
-        title: '重写日记',
-        message: `重写 ${entry.date} 的日记？将携带完整聊天历史，只生成这一天，并仅调用一次 API。每天 ≤${DIARY_SKIP_THRESHOLD} 条消息时跳过。`,
-      });
-    });
-    item.querySelector('[data-role="delete"]').addEventListener('click', () => {
-      void runAction(ui, async () => {
-        const confirmed = await showConfirmPopup(
-          '删除日记',
-          `删除 ${entry.date} 的日记？只删除日记，原始聊天记录不会被删除；符合条件的日期会重新显示为待总结。`,
-          { danger: true, okButton: '删除' },
-        );
-        if (!confirmed) return;
-        const removed = await removeDiaryEntry(ui.contactId, entry.date);
-        setStatus(ui, removed ? `${entry.date} 的日记已删除，原始聊天保留。` : `${entry.date} 的日记已不存在。`);
-        if (removed) showSuccessToast('日记已删除，原始聊天保留');
-      }, { refresh: true, failureText: '删除日记失败' });
-    });
+  for (const entry of [...ui.entries].reverse()) {
+    const item = document.createElement('details');
+    item.style.cssText = 'background:var(--phone-bg-card,#fff);border-radius:8px;padding:10px;margin-top:8px;';
+    const summary = document.createElement('summary');
+    summary.textContent = entry.date;
+    item.appendChild(summary);
+    const body = document.createElement('div');
+    body.style.cssText = 'white-space:pre-wrap;line-height:1.6;font-size:13px;margin:8px 0;';
+    body.textContent = entry.content;
+    item.appendChild(body);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = '删除这篇日记（保留原聊天）';
+    button.addEventListener('click', () => void runAction(ui, async () => {
+      const confirmed = await showConfirmPopup('删除日记', `删除 ${entry.date} 的日记？不会删除原始聊天。`, { okButton: '删除', danger: true });
+      if (!confirmed) return;
+      await removeDiaryEntry(ui.contactId, entry.date);
+      setStatus(ui, `${entry.date} 的日记已删除，原始聊天保留。`);
+    }, { refresh: true }));
+    item.appendChild(button);
     ui.list.appendChild(item);
   }
 }
 
-async function handleBack() {
-  if (busy) return;
-  try {
-    const overlay = /** @type {HTMLElement} */ (document.querySelector('.phone-overlay'));
-    const { hidePage } = await import('../phone-main-ui.js');
-    hidePage(overlay, 'chat-diary');
-  } catch (error) {
-    logger.error('phone', '[ChatDiary] 返回失败:', error);
-    showErrorToast('返回失败，请稍后重试');
-  }
-}
-
 function escapeHtml(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+  return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }

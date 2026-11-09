@@ -15,6 +15,35 @@ import { extension_settings, saveSettingsDebounced, flushPhoneStorage } from '..
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 export const DIARY_SKIP_THRESHOLD = 20;
 
+/** 可编辑的是写作要求；批量分日保存所需的 JSON 协议由生成器单独追加。 */
+export const DEFAULT_DIARY_PROMPT = `站在角色自己的视角写日记，第一人称“我”指日记作者，而不是用户。
+根据角色资料和完整聊天历史保持角色的身份、语气及与用户的关系。
+按指定日期分别写，每篇按时间顺序，标出大概几点。适度压缩重要事件、互动、感受和关系变化，不要逐句复述。
+不强制保留用户原话；确有必要时可择要引用，但引用必须与原文一致，不伪造原话。
+只记录聊天中能确认的事情。隔天转述的旧事要说明是当日回顾；不编造线下行动、关系或动机，不把猜测当成事实。
+保持角色平时的语感，不要写成说明书。`;
+
+export function getDiaryPrompt() {
+  const prompt = ensureDiaryData().diarySettings.prompt;
+  return typeof prompt === 'string' && prompt.trim() ? prompt : DEFAULT_DIARY_PROMPT;
+}
+
+/** 全手机共用，随独立数据备份；保存失败恢复旧值并向 UI 报错。 */
+export async function setDiaryPrompt(text) {
+  if (typeof text !== 'string' || !text.trim()) throw new Error('总结提示词不能为空');
+  const settings = ensureDiaryData().diarySettings;
+  const previous = settings.prompt;
+  settings.prompt = text;
+  try {
+    saveSettingsDebounced();
+    await persist();
+  } catch (error) {
+    if (previous === undefined) delete settings.prompt;
+    else settings.prompt = previous;
+    throw error;
+  }
+}
+
 /** 非安全用途的源记录指纹，用于发现日记生成后的增删改。 */
 export function getDiarySourceFingerprint(messages) {
   // 持久层会排序对象键；键顺序不属于消息内容，否则刷新会误判日记过期。
