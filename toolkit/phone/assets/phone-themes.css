@@ -1,0 +1,360 @@
+/* Independent UI themes. Loaded AFTER upstream phone.css; no host/body palette changes. */
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"]) {
+  --phone-bg-card: var(--phone-bg-white);
+  --phone-border-color: var(--phone-border);
+  --phone-text-main: var(--phone-text-primary);
+  --phone-text-muted: var(--phone-text-secondary);
+  --phone-bg-grey: var(--phone-bg-main);
+  --phone-bg-hover: var(--phone-primary-light);
+  --phone-hover: var(--phone-primary-light);
+  --phone-accent-light: var(--phone-primary-light);
+  --phone-primary-hover: var(--phone-primary-dark);
+  --phone-link: var(--phone-primary);
+  --phone-field-bg: var(--phone-bg-white);
+  --phone-field-text: var(--phone-text-primary);
+  color-scheme: light;
+}
+
+/* A popup attached to body does not inherit the frame's original dark variables. */
+.phone-theme-surface[data-phone-theme-owner="standalone"][data-theme="dark"] {
+  --phone-primary: #4a9eff;
+  --phone-primary-dark: #3d8ff5;
+  --phone-primary-light: #1c3a52;
+  --phone-bg-main: #1a1a1a;
+  --phone-bg-white: #2c2c2c;
+  --phone-bg-chat: #1e1e1e;
+  --phone-text-primary: #e0e0e0;
+  --phone-text-secondary: #a3a3a3;
+  --phone-text-tertiary: #ababab;
+  --phone-text-white: #fff;
+  --phone-popup-text-main: #e0e0e0;
+  --phone-popup-text-muted: #a3a3a3;
+  --phone-popup-bg: #2c2c2c;
+  --phone-bubble-sent: #4a8c3e;
+  --phone-bubble-received: #3a3a3a;
+  --phone-border: #404040;
+  --phone-border-light: #555;
+  --phone-border-disabled: #4a4a4a;
+  --phone-search-bg: rgba(60,60,60,.8);
+  --phone-danger: #ff8585;
+  --phone-danger-light: #ff9999;
+  --phone-success: #75c786;
+  --phone-success-dark: #5cb85c;
+  --phone-warning: #ffca75;
+  --phone-warning-dark: #ffb84d;
+  --phone-danger-bg: rgba(255,107,107,.15);
+  --phone-danger-bg-hover: rgba(255,107,107,.25);
+  --phone-success-bg: rgba(92,184,92,.15);
+  --phone-warning-bg: rgba(255,184,77,.15);
+  --phone-pending-bg: rgba(255,159,64,.15);
+  --phone-overlay-light: rgba(255,255,255,.05);
+  --phone-overlay-medium: rgba(255,255,255,.1);
+}
+
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"])[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* Fix native controls and host form styles in ALL three phone themes.
+   Checkbox/range/color/file/custom bubble samples keep their own rendering. */
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"])
+:is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]), textarea, select, [contenteditable="true"]) {
+  background-color: var(--phone-field-bg) !important;
+  color: var(--phone-field-text) !important;
+  -webkit-text-fill-color: var(--phone-field-text) !important;
+  caret-color: var(--phone-primary);
+  border-color: var(--phone-border-light) !important;
+  text-shadow: none;
+}
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"]) :is(input, textarea)::placeholder {
+  color: var(--phone-text-secondary) !important;
+  -webkit-text-fill-color: var(--phone-text-secondary) !important;
+  opacity: 1;
+}
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"]) select option {
+  background: var(--phone-popup-bg);
+  color: var(--phone-popup-text-main);
+}
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"]) :is(input, textarea, select, button, [tabindex]):focus-visible {
+  outline: 2px solid var(--phone-primary) !important;
+  outline-offset: 2px;
+}
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"]) :is(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--phone-primary);
+}
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"]) :is(input, textarea):-webkit-autofill {
+  -webkit-text-fill-color: var(--phone-field-text) !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--phone-field-bg) inset !important;
+}
+.phone-container .phone-theme-select {
+  width: 100%;
+  max-width: 9.5em;
+  font: inherit;
+  font-size: .8em;
+  border: 1px solid var(--phone-border);
+  border-radius: 9px;
+  padding: .3em .35em;
+  cursor: pointer;
+}
+
+/* Classic dark: contrast repairs only, not a redesign of the existing theme. */
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"])[data-theme="dark"]
+:is(.debug-version-indicator, .chat-msg-transfer-body, .chat-msg-gift-membership-body, .plan-story-card) {
+  background: var(--phone-bg-card) !important;
+  color: var(--phone-text-primary) !important;
+}
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"])[data-theme="dark"] .phone-popup-ok.danger:hover {
+  background: var(--phone-danger-bg-hover);
+}
+
+:where(.phone-container[data-theme="dark"]) .chat-msg-received :is(.chat-msg-bubble-transfer, .chat-msg-bubble-gift-membership),
+:where(.phone-container[data-theme="dark"]) :is(.chat-msg-received, .chat-msg-sent) .chat-msg-bubble-plan {
+  background-color: var(--phone-bg-card);
+}
+
+/* Third theme: quiet graphite, frosted chrome, soft blue-grey accent. */
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"])[data-theme="glass-dark"] {
+  color-scheme: dark;
+  --phone-primary: #a8c8eb;
+  --phone-primary-dark: #82afd9;
+  --phone-primary-light: #283e56;
+  --phone-action-bg: #3f6d98;
+  --phone-action-hover: #47759f;
+  --phone-on-action: #fff;
+  --phone-bg-main: #101620;
+  --phone-bg-white: rgba(33,43,57,.9);
+  --phone-bg-chat: #121a25;
+  --phone-text-primary: #edf2f8;
+  --phone-text-secondary: #b0bed0;
+  --phone-text-tertiary: #a6b6c9;
+  --phone-text-white: #fff;
+  --phone-popup-text-main: #edf2f8;
+  --phone-popup-text-muted: #b0bed0;
+  --phone-popup-bg: #202c3b;
+  --phone-bubble-sent: #365673;
+  --phone-bubble-received: #263344;
+  --phone-border: rgba(206,225,247,.13);
+  --phone-border-light: #5b6b7f;
+  --phone-border-disabled: #455162;
+  --phone-search-bg: rgba(217,231,249,.07);
+  --phone-badge: #f3989c;
+  --phone-danger: #ffaaaa;
+  --phone-danger-light: #ffc0bf;
+  --phone-danger-bg: rgba(221,102,112,.16);
+  --phone-danger-bg-hover: rgba(221,102,112,.24);
+  --phone-success: #a0d5b1;
+  --phone-success-dark: #80bd96;
+  --phone-success-bg: rgba(120,185,146,.16);
+  --phone-warning: #edc994;
+  --phone-warning-dark: #e1b46c;
+  --phone-warning-bg: rgba(220,174,103,.16);
+  --phone-pending-bg: rgba(220,174,103,.16);
+  --phone-vip-color: #f0aaaa;
+  --phone-svip-color: #e2c69e;
+  --phone-membership-badge-bg: #3f3940;
+  --phone-membership-badge-text: #ecd6b7;
+  --phone-overlay-light: rgba(217,231,249,.06);
+  --phone-overlay-medium: rgba(217,231,249,.11);
+  --phone-field-bg: #1a2635;
+  --phone-field-text: #edf2f8;
+  --phone-glass-chrome: rgba(27,37,51,.84);
+  --phone-glass-hover: rgba(212,230,250,.08);
+  color: var(--phone-text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.phone-overlay .phone-container[data-theme="glass-dark"] {
+  background: radial-gradient(ellipse at 0% 0%, #26394e 0%, transparent 58%),
+    radial-gradient(ellipse at 100% 100%, #243443 0%, transparent 65%), #101620;
+  border: 1px solid rgba(216,233,252,.17);
+  border-radius: 24px;
+  box-shadow: 0 32px 96px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08);
+}
+.phone-container[data-theme="glass-dark"]
+:is(.phone-page, .phone-content, .chat-diary-page, .chat-settings-page, .chat-settings-content,
+.user-profile-page, .user-content, .user-settings-page, .api-settings-page, .preset-settings-page,
+.char-prompt-page, .contact-regex-page, .plan-list-page, .favorites-list-wrapper, .signature-history-page,
+.msg-send-custom-page, .chat-bg-settings-page, .storage-space-page, .image-storage-page, .help-center-page) {
+  background-color: transparent !important;
+  color: var(--phone-text-primary);
+}
+.phone-container[data-theme="glass-dark"] .chat-content {
+  background-color: rgba(12,19,28,.45);
+  /* Keep user-selected background images intact. */
+}
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"])[data-theme="glass-dark"]
+:is(.phone-header, .phone-nav, .chat-input-area, .user-footer, [class$="-topbar"],
+.phone-popup, .debug-popup, .contact-bg-picker) {
+  background: var(--phone-glass-chrome);
+  color: var(--phone-text-primary);
+  border-color: var(--phone-border);
+  -webkit-backdrop-filter: blur(22px) saturate(115%);
+  backdrop-filter: blur(22px) saturate(115%);
+}
+.phone-container[data-theme="glass-dark"] :is(.phone-header, [class$="-topbar"]) {
+  border-bottom: 1px solid var(--phone-border);
+  box-shadow: 0 1px 0 rgba(0,0,0,.1);
+}
+.phone-container[data-theme="glass-dark"] :is(.phone-header-user-name, .chat-settings-title, [class$="-title"]) {
+  letter-spacing: -.015em;
+}
+.phone-container[data-theme="glass-dark"] .phone-nav { border-top: 1px solid var(--phone-border); }
+.phone-container[data-theme="glass-dark"] .phone-nav-item { color: var(--phone-text-secondary); }
+.phone-container[data-theme="glass-dark"] .phone-nav-item.active { color: var(--phone-primary); }
+.phone-container[data-theme="glass-dark"]
+:is(.user-profile-card, .contact-profile-main-card, .chat-settings-contact-card, .chat-settings-section-content,
+.wallet-stat-card, .transactions-stat-card, .signature-current-card, .phone-settings-account-card,
+.preset-item, .char-prompt-item, .user-menu-list, .chat-msg-card, .chat-msg-forwarded-card) {
+  background: var(--phone-bg-card);
+  border: 1px solid var(--phone-border);
+  border-radius: 14px;
+  color: var(--phone-text-primary);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.035), 0 4px 14px rgba(0,0,0,.08);
+}
+.phone-container[data-theme="glass-dark"] :is(.msg-item, .user-menu-item, .chat-settings-item, .contact-settings-item) {
+  border-color: var(--phone-border);
+}
+.phone-container[data-theme="glass-dark"] :is(.msg-item, .user-menu-item, .chat-settings-item, .contact-settings-item):hover {
+  background-color: var(--phone-glass-hover);
+}
+:where(.phone-container[data-theme="glass-dark"]) .chat-msg-bubble {
+  border-radius: 17px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.045), 0 2px 6px rgba(0,0,0,.08);
+  /* No !important: purchased/user-customized bubble styles retain priority. */
+}
+:where(.phone-container[data-theme="glass-dark"]) .chat-msg-received .chat-msg-bubble {
+  background-color: var(--phone-bubble-received);
+  color: var(--phone-text-primary);
+}
+:where(.phone-container[data-theme="glass-dark"]) .chat-msg-sent .chat-msg-bubble {
+  background-color: var(--phone-bubble-sent);
+  color: #f4f8ff;
+}
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"])[data-theme="glass-dark"]
+:is(.debug-version-indicator, .chat-msg-transfer-body, .chat-msg-gift-membership-body,
+.plan-story-card, .chat-msg-plan-header) {
+  background: var(--phone-popup-bg) !important;
+  color: var(--phone-text-primary) !important;
+  border-color: var(--phone-border);
+}
+.phone-container[data-theme="glass-dark"]
+:is(.chat-msg-plan-label, .chat-msg-plan-header i, .chat-msg-plan-action-btn) {
+  color: var(--phone-text-secondary) !important;
+}
+.phone-container[data-theme="glass-dark"] .chat-msg-plan-action-btn {
+  background-color: var(--phone-glass-hover);
+}
+.phone-container[data-theme="glass-dark"] .chat-msg-plan-action-btn:hover {
+  color: var(--phone-text-primary) !important;
+  background-color: var(--phone-primary-light);
+}
+.phone-container[data-theme="glass-dark"] .customization-bubble-price .price-free {
+  color: var(--phone-text-secondary);
+}
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"])[data-theme="glass-dark"] .phone-popup {
+  border: 1px solid var(--phone-border);
+  border-radius: 20px;
+  box-shadow: 0 24px 72px rgba(0,0,0,.48), inset 0 1px 0 rgba(255,255,255,.055);
+}
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"])[data-theme="glass-dark"]
+:is(.phone-popup-header, .debug-header, .debug-footer, .phone-popup-footer) {
+  border-color: var(--phone-border);
+  background-color: rgba(255,255,255,.02);
+}
+.phone-container[data-theme="glass-dark"] .chat-diary-page :is(button, textarea, select) {
+  border: 1px solid var(--phone-border-light);
+  border-radius: 10px;
+  padding: .45em .65em;
+  background-color: var(--phone-field-bg);
+  color: var(--phone-text-primary);
+}
+.phone-container[data-theme="dark"] .chat-diary-page button {
+  background: var(--phone-bg-card);
+  color: var(--phone-text-primary);
+  border: 1px solid var(--phone-border-light);
+}
+.phone-container[data-theme="glass-dark"] .chat-diary-page textarea { line-height: 1.65; }
+.phone-container[data-theme="glass-dark"] :is(button, input, select, textarea):disabled { opacity: .55; }
+.phone-container[data-theme="glass-dark"] ::-webkit-scrollbar-thumb { background: rgba(203,221,242,.22); }
+.phone-container[data-theme="glass-dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(203,221,242,.36); }
+
+/* Pale accent is for links/outlines. Filled actions get a separate, accessible dark blue. */
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"])[data-theme="glass-dark"]
+:is(.chat-send-text-btn, .chat-media-modal-btn-send, .newfriend-item-btn-agree, .groupnotify-item-btn-agree,
+.creategroup-create-btn, .redpack-cover-modal-btn-confirm, .plan-executor-btn.dice-btn,
+.plan-creator-popup .send-btn, .contact-profile-btn-primary, .phone-btn-primary,
+.api-settings-btn-primary, .api-settings-btn-test, .regex-gen-confirm-btn, .msg-send-custom-select-btn,
+.debug-btn.active, .debug-btn-primary, .transfer-btn-submit, .macro-guide-copy-btn,
+.newfriend-item-btn-view, .friend-request-btn-agree, .image-storage-retry-btn,
+.customization-filter-tab.active, .image-mode-option-badge, .chat-bg-item-check) {
+  background: var(--phone-action-bg);
+  color: var(--phone-on-action);
+  border-color: var(--phone-action-bg);
+}
+:is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"])[data-theme="glass-dark"]
+:is(.chat-send-text-btn, .api-settings-btn-primary, .api-settings-btn-test, .debug-btn-primary,
+.transfer-btn-submit, .friend-request-btn-agree):hover:not(:disabled) {
+  background: var(--phone-action-hover);
+  color: var(--phone-on-action);
+}
+.phone-container[data-theme="glass-dark"] :is(.chat-multiselect-checkbox, .msg-send-item-checkbox):checked,
+.phone-container[data-theme="glass-dark"] .emgr-item.selected::after {
+  background: var(--phone-action-bg);
+  border-color: var(--phone-action-bg);
+  color: var(--phone-on-action);
+}
+
+/* Detached notification JS uses inline light colors. Override ONLY owned dark roots. */
+.phone-theme-surface[data-phone-theme-owner="standalone"]:is([data-theme="dark"], [data-theme="glass-dark"]):is(.phone-toast, .phone-message-notification) {
+  background: var(--phone-popup-bg) !important;
+  color: var(--phone-text-primary) !important;
+  border: 1px solid var(--phone-border) !important;
+  box-shadow: 0 12px 36px rgba(0,0,0,.35);
+}
+.phone-theme-surface[data-phone-theme-owner="standalone"]:is([data-theme="dark"], [data-theme="glass-dark"])
+:is(.phone-notification-name, .phone-notification-preview) {
+  color: var(--phone-text-primary) !important;
+}
+.phone-theme-surface[data-phone-theme-owner="standalone"]:is([data-theme="dark"], [data-theme="glass-dark"])
+:is(.phone-toast-time, .phone-notification-time) {
+  color: var(--phone-text-secondary) !important;
+}
+.phone-theme-surface[data-phone-theme-owner="standalone"][data-theme="glass-dark"].chat-msg-actions-menu .chat-msg-actions-container {
+  background: var(--phone-popup-bg);
+  border: 1px solid var(--phone-border);
+  border-radius: 16px;
+}
+.phone-theme-surface[data-phone-theme-owner="standalone"][data-theme="glass-dark"] .chat-msg-action-btn {
+  color: var(--phone-text-primary);
+}
+
+/* Without backdrop-filter (or when reduced transparency is requested), remain legible. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"])[data-theme="glass-dark"] {
+    --phone-bg-white: #212d3c;
+    --phone-glass-chrome: #1b2533;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"])[data-theme="glass-dark"] {
+    --phone-bg-white: #212d3c;
+    --phone-glass-chrome: #1b2533;
+  }
+  :is(.phone-container, .phone-theme-surface[data-phone-theme-owner="standalone"])[data-theme="glass-dark"] * {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .phone-container[data-theme="glass-dark"] * {
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+  }
+}
+@media (max-width: 768px) {
+  .phone-overlay .phone-container[data-theme="glass-dark"] {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}

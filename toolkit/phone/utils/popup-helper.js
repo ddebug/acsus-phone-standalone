@@ -9,6 +9,7 @@
  */
 
 import logger from '../../../logger.js';
+import { applySavedPhoneSurfaceTheme } from './theme-surfaces.js';
 
 /**
  * 显示输入弹窗
@@ -76,6 +77,7 @@ export async function showInputPopup(title, defaultValue = '', options = {}) {
     const overlay = document.createElement('div');
     overlay.className = 'phone-popup-overlay';
     overlay.innerHTML = popupHTML;
+    void applySavedPhoneSurfaceTheme(overlay);
     document.body.appendChild(overlay);
 
     // 触发动画
@@ -191,6 +193,7 @@ export async function showConfirmPopup(title, message, options = {}) {
     const overlay = document.createElement('div');
     overlay.className = 'phone-popup-overlay';
     overlay.innerHTML = popupHTML;
+    void applySavedPhoneSurfaceTheme(overlay);
     document.body.appendChild(overlay);
 
     // 触发动画
@@ -294,6 +297,7 @@ export async function showCustomPopup(title, contentHTML, options = {}) {
     const overlay = document.createElement('div');
     overlay.className = 'phone-popup-overlay';
     overlay.innerHTML = popupHTML;
+    void applySavedPhoneSurfaceTheme(overlay);
     document.body.appendChild(overlay);
 
     // 触发动画
@@ -420,6 +424,7 @@ export async function showCustomPopupWithData(title, contentHTML, options = {}) 
     const overlay = document.createElement('div');
     overlay.className = 'phone-popup-overlay';
     overlay.innerHTML = popupHTML;
+    void applySavedPhoneSurfaceTheme(overlay);
     document.body.appendChild(overlay);
 
     // 触发动画

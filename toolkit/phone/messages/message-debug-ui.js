@@ -152,6 +152,7 @@ export async function openDebugUI(contactId) {
   const popup = createDebugPopup(contactId, state);
   currentPopup = popup;
 
+  popup.classList.add('standalone-phone-debug');
   document.body.appendChild(popup);
 
   // 触发动画（和通用弹窗一致）

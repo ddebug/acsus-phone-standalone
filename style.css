@@ -1,4 +1,5 @@
 @import url('./toolkit/phone/assets/phone.css');
+@import url('./toolkit/phone/assets/phone-themes.css');
 
 #acsus-phone-standalone-settings { margin: 8px 0; padding: 10px; border: 1px solid var(--SmartThemeBorderColor, #65758b); border-radius: 10px; }
 #acsus-phone-standalone-settings > summary { cursor: pointer; font-weight: 600; }

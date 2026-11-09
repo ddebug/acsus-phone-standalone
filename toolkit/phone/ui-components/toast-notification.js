@@ -14,6 +14,7 @@
 import logger from '../../../logger.js';
 import { getContext } from '/scripts/extensions.js';
 import { getThumbnailUrl } from '/script.js';
+import { applySavedPhoneSurfaceTheme } from '../utils/theme-surfaces.js';
 
 // ========================================
 // [CORE] 通知工具类
@@ -196,6 +197,7 @@ export function showPhoneToast(message, type = 'success', duration = 3000) {
   }
 
   // 添加到页面
+  void applySavedPhoneSurfaceTheme(toast);
   document.body.appendChild(toast);
 
   // 滑入动画 + 微弹效果
@@ -491,6 +493,7 @@ export function showPhoneMessageNotification(options = {}) {
   }
 
   // 添加到页面
+  void applySavedPhoneSurfaceTheme(notification);
   document.body.appendChild(notification);
 
   // 滑入动画

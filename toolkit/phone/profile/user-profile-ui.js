@@ -12,14 +12,14 @@ import { showSuccessToast, showWarningToast, showErrorToast, showInfoToast } fro
 import { getUserAvatar as getSTUserAvatar, user_avatar } from '/scripts/personas.js';
 import { getUserDisplayName } from '../utils/contact-display-helper.js';
 import { stateManager } from '../utils/state-manager.js';
-import { toggleTheme, getTheme, getThemeIcon, getThemeText } from '../utils/theme-manager.js';
+import { PHONE_THEMES, getTheme, setTheme } from '../utils/theme-manager.js';
 
 /**
  * 渲染用户个人主页
  *
  * @description
  * 显示用户自己的个人主页，包括头像、名字、个性签名、
- * 功能菜单列表（相册、收藏、钱包等）、底部按钮（设置、夜间、天气）。
+ * 功能菜单列表（相册、收藏、钱包等）、底部控件（设置、主题、天气）。
  * 顶部背景图可点击更换。
  *
  * @async
@@ -225,39 +225,65 @@ async function createFooterButtons(userConfig) {
     handleOpenSettings();
   });
 
-  // 夜间模式按钮
-  const nightBtn = document.createElement('button');
-  nightBtn.className = 'user-footer-btn';
+  // 原生三选一主题控件，保留底部布局类，不嵌套交互按钮。
+  const themeControl = document.createElement('label');
+  themeControl.className = 'user-footer-btn';
+  const themeIcon = document.createElement('i');
+  themeIcon.setAttribute('aria-hidden', 'true');
+  const themeSelect = document.createElement('select');
+  themeSelect.className = 'phone-theme-select';
+  themeSelect.setAttribute('aria-label', '手机界面主题');
+  themeSelect.title = '选择手机界面主题';
 
-  // 读取当前主题，设置按钮显示
-  const currentTheme = await getTheme();
-  const icon = getThemeIcon(currentTheme);
-  const text = getThemeText(currentTheme);
+  PHONE_THEMES.forEach(({ id, label }) => {
+    const option = document.createElement('option');
+    option.value = id;
+    option.textContent = label;
+    themeSelect.appendChild(option);
+  });
 
-  nightBtn.innerHTML = `
-        <i class="fa-solid ${icon}"></i>
-        <span>${text}</span>
-    `;
+  // 读取失败不阻止整个个人主页显示，也不擅自改写已保存的主题。
+  const appliedTheme = document.querySelector('.phone-container')?.getAttribute('data-theme');
+  let currentTheme = PHONE_THEMES.some(theme => theme.id === appliedTheme) ? appliedTheme : 'light';
+  try {
+    currentTheme = await getTheme();
+  } catch (error) {
+    logger.error('phone','[UserProfile] 读取主题失败:', error);
+    showErrorToast('读取主题失败，请重试');
+  }
 
-  // 添加点击事件
-  nightBtn.addEventListener('click', async () => {
-    logger.debug('phone','[UserProfile] 点击夜间模式按钮');
+  const updateThemeControl = () => {
+    themeSelect.value = currentTheme;
+    const theme = PHONE_THEMES.find(option => option.id === currentTheme);
+    themeIcon.className = `fa-solid ${theme.icon}`;
+  };
+  updateThemeControl();
+  themeControl.appendChild(themeIcon);
+  themeControl.appendChild(themeSelect);
 
-    // 切换主题
-    const newTheme = await toggleTheme();
+  themeSelect.addEventListener('change', async () => {
+    if (themeSelect.disabled) return;
+    const selectedTheme = PHONE_THEMES.find(theme => theme.id === themeSelect.value);
+    if (!selectedTheme || selectedTheme.id === currentTheme) {
+      updateThemeControl();
+      return;
+    }
 
-    // 更新按钮显示
-    const newIcon = getThemeIcon(newTheme);
-    const newText = getThemeText(newTheme);
-    nightBtn.innerHTML = `
-        <i class="fa-solid ${newIcon}"></i>
-        <span>${newText}</span>
-    `;
-
-    // Toast提示当前模式（不是按钮文字）
-    const currentModeText = newTheme === 'dark' ? '夜间' : '日间';
-    logger.info('phone',`[UserProfile] 主题已切换为: ${newTheme}`);
-    showSuccessToast(`已切换到${currentModeText}模式`);
+    // 保存期间禁用控件，避免连续切换产生乱序写入。
+    themeSelect.disabled = true;
+    try {
+      await setTheme(selectedTheme.id);
+      currentTheme = selectedTheme.id;
+      updateThemeControl();
+      logger.info('phone',`[UserProfile] 主题已切换为: ${currentTheme}`);
+      showSuccessToast(`已切换到${selectedTheme.label}模式`);
+    } catch (error) {
+      updateThemeControl();
+      logger.error('phone','[UserProfile] 切换主题失败:', error);
+      showErrorToast('切换主题失败，请重试');
+    } finally {
+      themeSelect.disabled = false;
+    }
   });
 
   // 天气按钮
@@ -280,7 +306,7 @@ async function createFooterButtons(userConfig) {
   });
 
   footer.appendChild(settingsBtn);
-  footer.appendChild(nightBtn);
+  footer.appendChild(themeControl);
   footer.appendChild(weatherBtn);
 
   return footer;

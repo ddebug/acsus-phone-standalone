@@ -25,6 +25,7 @@ import { showConfirmPopup } from './utils/popup-helper.js';
 import pageStack from './utils/page-stack-helper.js';
 import { getUserDisplayName } from './utils/contact-display-helper.js';
 import { initTheme } from './utils/theme-manager.js';
+import { bindPhoneThemeSurfaces, releasePhoneThemeSurfaces } from './utils/theme-surfaces.js';
 
 /**
  * 渲染手机框架
@@ -76,6 +77,7 @@ export function renderPhoneFrame() {
   // 应用保存的主题设置（日间/夜间模式）
   // 直接传入 .phone-container 元素，不需要等待 DOM 添加
   const phoneContainer = phoneOverlay.querySelector('.phone-container');
+  bindPhoneThemeSurfaces(phoneContainer);
   initTheme(phoneContainer).catch(error => {
     logger.error('phone','[PhoneUI] 初始化主题失败:', error);
   });
@@ -309,6 +311,7 @@ function closePhoneUI() {
 
   const phoneOverlay = document.querySelector('.phone-overlay');
   if (phoneOverlay) {
+    releasePhoneThemeSurfaces(phoneOverlay.querySelector('.phone-container'));
     phoneOverlay.remove();
     // 清空页面栈
     pageStack.resetStack('messages');
