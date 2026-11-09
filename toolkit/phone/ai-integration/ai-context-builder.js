@@ -2021,17 +2021,47 @@ export async function buildHistoryChatInfo(contactId, contact, messageNumberMap)
     return { content: '', nextNumber: 1 };  // 没有历史消息
   }
 
+  // 日记替换：已经写成日记的日期，不再发送原始聊天记录。
+  const { getDiaryMap, getLocalDateKey, isDiaryEnabled } = await import('../messages/chat-diary-data.js');
+  const diaryMap = isDiaryEnabled() ? getDiaryMap(contactId) : new Map();
+  let renderList = historyMessages;
+  if (diaryMap.size > 0) {
+    // 最近一天还在继续聊天，保留原始记录，避免和 recent 段重复。
+    const lastDayKey = getLocalDateKey(validHistory[validHistory.length - 1]?.time);
+    const compacted = [];
+    let lastDiaryDate = null;
+    for (const msg of historyMessages) {
+      const dayKey = getLocalDateKey(msg?.time);
+      const entry = dayKey && dayKey !== lastDayKey ? diaryMap.get(dayKey) : null;
+      if (entry) {
+        if (dayKey !== lastDiaryDate) {
+          compacted.push({ __diary: true, date: dayKey, content: entry.content, time: msg.time });
+          lastDiaryDate = dayKey;
+        }
+        continue;
+      }
+      lastDiaryDate = null;
+      compacted.push(msg);
+    }
+    renderList = compacted;
+    logger.info('phone','[ContextBuilder.buildHistoryChatInfo] 日记替换:', contactId, `${historyMessages.length}条 → ${renderList.length}段`);
+  }
+
   let content = '';
   let currentNumber = 1;
 
   // 遍历历史消息
-  historyMessages.forEach((msg, index) => {
+  renderList.forEach((msg, index) => {
+    if (msg.__diary) {
+      content += `[日记 ${msg.date}]\n${msg.content}\n\n`;
+      return;
+    }
     const senderName = msg.sender === 'user' ? userName : contact.name;
-    const prevTime = index > 0 ? historyMessages[index - 1].time : null;
+    const prevTime = index > 0 ? renderList[index - 1].time : null;
     const isFirst = index === 0;
 
     // 智能时间显示
-    const timeStr = buildCompactTimePrefix(historyMessages, index, msg, formatTimeForAI);
+    const timeStr = buildCompactTimePrefix(renderList, index, msg, formatTimeForAI);
 
     // 根据消息类型添加前缀
     let messageContent = msg.content;
@@ -2081,8 +2111,10 @@ export async function buildHistoryChatInfo(contactId, contact, messageNumberMap)
 
   logger.debug('phone','[ContextBuilder] 历史聊天记录构建完成，共', historyMessages.length, '条');
 
+  // 含日记段落时不做同调用合并，避免把日记正文当成消息行处理。
+  const usedDiary = renderList.some(item => item && item.__diary);
   return {
-    content: compactSameCallLines(content),
+    content: usedDiary ? content : compactSameCallLines(content),
     nextNumber: currentNumber
   };
 }

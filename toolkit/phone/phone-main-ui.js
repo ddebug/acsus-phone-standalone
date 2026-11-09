@@ -1616,6 +1616,23 @@ async function createPage(pageName, params = {}) {
 
       return chatSettingsPage;
 
+    case 'chat-diary':
+      // 聊天日记：按天总结，替代原始聊天记录
+      if (!params.contactId) {
+        logger.warn('phone','[PhoneUI.createPage] 日记页缺少contactId参数');
+        return null;
+      }
+      const { renderChatDiaryPage } = await import('./messages/chat-diary-ui.js');
+      const diaryContent = await renderChatDiaryPage(params);
+
+      const diaryPage = document.createElement('div');
+      diaryPage.id = 'page-chat-diary';
+      diaryPage.className = 'phone-page phone-page-scrollable';
+      diaryPage.dataset.contactId = params.contactId;
+      diaryPage.appendChild(diaryContent);
+
+      return diaryPage;
+
     case 'notification-settings':
       // 动态导入消息通知设置页渲染函数
       if (!params.contactId) {

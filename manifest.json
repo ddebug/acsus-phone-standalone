@@ -6,7 +6,7 @@
   "js": "index.js",
   "css": "style.css",
   "author": "白沉 & 溯 / AcSus · standalone adaptation",
-  "version": "0.1.9",
-  "homePage": "https://github.com/ddebug/acsus-phone-standalone",
+  "version": "0.2.0",
+  "homePage": "https://github.com/ddebug/st-phone",
   "auto_update": false
 }

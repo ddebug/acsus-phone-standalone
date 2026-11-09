@@ -157,6 +157,14 @@ function createSettingsList(contact) {
             </div>
         </div>
 
+        <!-- 聊天日记 -->
+        <div class="chat-settings-item" data-action="chat-diary">
+            <span class="chat-settings-item-label">聊天日记</span>
+            <div class="chat-settings-item-right">
+                <i class="fa-solid fa-chevron-right"></i>
+            </div>
+        </div>
+
         <!-- 聊天记录发送设置 -->
         <div class="chat-settings-section-title">聊天记录发送设置</div>
 
@@ -289,6 +297,11 @@ function bindSettingsEvents(list, contact) {
     handleMessageSendCustom(contact);
   });
 
+  // 聊天日记
+  list.querySelector('[data-action="chat-diary"]').addEventListener('click', () => {
+    handleChatDiary(contact);
+  });
+
   // 数字输入框
   list.querySelectorAll('.chat-settings-number-input').forEach((el) => {
     const input = /** @type {HTMLInputElement} */ (el);
@@ -398,6 +411,22 @@ async function handleMessageSendCustom(contact) {
   const overlay = document.querySelector('.phone-overlay');
   if (overlay) {
     showPage(/** @type {HTMLElement} */(overlay), 'message-send-custom', {
+      contactId: contact.id
+    });
+  }
+}
+
+/**
+ * 打开聊天日记页面
+ * @param {Object} contact - 联系人对象
+ */
+async function handleChatDiary(contact) {
+  logger.info('phone','[ChatSettings] 打开聊天日记:', contact.name);
+
+  const { showPage } = await import('../phone-main-ui.js');
+  const overlay = document.querySelector('.phone-overlay');
+  if (overlay) {
+    showPage(/** @type {HTMLElement} */(overlay), 'chat-diary', {
       contactId: contact.id
     });
   }
