@@ -405,7 +405,7 @@ function checkIfParamsChanged(pageElement, newParams, pageName) {
   }
 
   // 收藏列表页每次显示时都刷新（数据可能已变化）
-  if (pageName === 'favorites-list') {
+  if (pageName === 'favorites-list' || pageName === 'chat-diary') {
     logger.debug('phone','[PhoneUI.checkIfParamsChanged] 收藏列表页，需要刷新');
     return true;
   }
@@ -1215,6 +1215,17 @@ async function refreshPageContent(pageName, params = {}) {
         }
       }
       break;
+
+    case 'chat-diary': {
+      const diaryPage = document.querySelector('#page-chat-diary');
+      if (diaryPage && params.contactId) {
+        const { renderChatDiaryPage } = await import('./messages/chat-diary-ui.js');
+        const content = await renderChatDiaryPage(params);
+        diaryPage.replaceChildren(content);
+        diaryPage.dataset.contactId = params.contactId;
+      }
+      break;
+    }
 
     case 'character-prompt-settings':
       // 刷新角色提示词设置页内容（返回的是 DocumentFragment）

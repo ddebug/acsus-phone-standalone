@@ -13,6 +13,43 @@ import logger from '../../../logger.js';
 import { extension_settings, saveSettingsDebounced, flushPhoneStorage } from '../../../standalone/phone-settings.js';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+export const DIARY_SKIP_THRESHOLD = 20;
+
+/** 非安全用途的源记录指纹，用于发现日记生成后的增删改。 */
+export function getDiarySourceFingerprint(messages) {
+  // 持久层会排序对象键；键顺序不属于消息内容，否则刷新会误判日记过期。
+  const canonical = value => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
+    }
+    return value;
+  };
+  const text = JSON.stringify(canonical(messages));
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index++) {
+    hash = Math.imul(hash ^ text.charCodeAt(index), 16777619) >>> 0;
+  }
+  return `${text.length}:${hash.toString(16)}`;
+}
+
+/** UI 与生成器共用判定：20条及以下跳过，旧日记源记录变更后重新待总结。 */
+export function getDiaryDayStatuses(messages, entries) {
+  const existing = new Map(entries.map(entry => [entry.date, entry]));
+  return [...groupMessagesByDate(messages.filter(message => !message.excluded))]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([date, dayMessages]) => {
+      const entry = existing.get(date);
+      // 旧版本没有正文指纹，仅条数/末条时间无法证明正文没被编辑。
+      const sameSource = Boolean(entry?.sourceFingerprint) &&
+        entry.sourceFingerprint === getDiarySourceFingerprint(dayMessages);
+      return {
+        date,
+        messageCount: dayMessages.length,
+        status: dayMessages.length <= DIARY_SKIP_THRESHOLD ? 'skipped' : sameSource ? 'summarized' : 'pending',
+      };
+    });
+}
 
 /** 本地日期键（YYYY-MM-DD），与界面显示/总结口径一致。 */
 export function getLocalDateKey(timestamp) {
@@ -41,6 +78,7 @@ async function persist() {
     await flushPhoneStorage();
   } catch (error) {
     logger.error('phone', '[ChatDiaryData] 日记保存失败:', error);
+    throw error;
   }
 }
 
@@ -52,9 +90,15 @@ export function isDiaryEnabled() {
 
 export async function setDiaryEnabled(enabled) {
   const phone = ensureDiaryData();
+  const previous = phone.diarySettings.enabled;
   phone.diarySettings.enabled = Boolean(enabled);
-  saveSettingsDebounced();
-  await persist();
+  try {
+    saveSettingsDebounced();
+    await persist();
+  } catch (error) {
+    phone.diarySettings.enabled = previous;
+    throw error;
+  }
 }
 
 /** 读取某个联系人的全部日记（按日期升序）。 */
@@ -68,10 +112,11 @@ export function loadDiaryEntries(contactId) {
 }
 
 /** 日期 → 日记条目 的映射，供上下文构建快速查找。 */
-export function getDiaryMap(contactId) {
-  const map = new Map();
-  for (const entry of loadDiaryEntries(contactId)) map.set(entry.date, entry);
-  return map;
+export function getDiaryMap(contactId, messages = null) {
+  const entries = loadDiaryEntries(contactId);
+  const validDates = messages ? new Set(getDiaryDayStatuses(messages, entries)
+    .filter(day => day.status === 'summarized').map(day => day.date)) : null;
+  return new Map(entries.filter(entry => !validDates || validDates.has(entry.date)).map(entry => [entry.date, entry]));
 }
 
 /**
@@ -82,39 +127,50 @@ export function getDiaryMap(contactId) {
  * @returns {Promise<Object>} 保存后的条目
  */
 export async function upsertDiaryEntry(contactId, entry) {
-  if (!entry || !DATE_PATTERN.test(String(entry.date || ''))) {
-    throw new Error('日记日期格式应为 YYYY-MM-DD');
-  }
-  const content = String(entry.content || '').trim();
-  if (!content) throw new Error('日记内容为空，未保存');
+  return (await saveDiaryEntries(contactId, [entry]))[0];
+}
 
+/** 一次提交本轮所有日期；验证失败不动旧日记，写盘失败不声称已保存。 */
+export async function saveDiaryEntries(contactId, entries) {
   const phone = ensureDiaryData();
-  if (!phone.diaries[contactId] || typeof phone.diaries[contactId] !== 'object') {
-    phone.diaries[contactId] = { entries: [] };
-  }
-  const store = phone.diaries[contactId];
-  if (!Array.isArray(store.entries)) store.entries = [];
-
+  const previous = phone.diaries[contactId];
+  const merged = new Map(loadDiaryEntries(contactId).map(entry => [entry.date, entry]));
   const now = Date.now();
-  const existingIndex = store.entries.findIndex(item => item.date === entry.date);
-  const saved = {
-    id: existingIndex >= 0 ? store.entries[existingIndex].id : `diary_${entry.date}_${now}`,
-    date: entry.date,
-    content,
-    fromTime: Number.isFinite(Number(entry.fromTime)) ? Number(entry.fromTime) : null,
-    toTime: Number.isFinite(Number(entry.toTime)) ? Number(entry.toTime) : null,
-    messageCount: Number.isFinite(Number(entry.messageCount)) ? Number(entry.messageCount) : null,
-    createdAt: existingIndex >= 0 ? (store.entries[existingIndex].createdAt || now) : now,
-    updatedAt: now,
+  const dates = new Set();
+  const saved = entries.map(entry => {
+    if (!entry || !DATE_PATTERN.test(String(entry.date || '')) || dates.has(entry.date)) {
+      throw new Error('日记日期无效或重复，未保存');
+    }
+    dates.add(entry.date);
+    const content = typeof entry.content === 'string' ? entry.content.trim() : '';
+    if (!content) throw new Error('日记内容为空，未保存');
+    const old = merged.get(entry.date);
+    return {
+      id: old?.id || `diary_${entry.date}_${now}`,
+      date: entry.date, content,
+      fromTime: Number.isFinite(Number(entry.fromTime)) ? Number(entry.fromTime) : null,
+      toTime: Number.isFinite(Number(entry.toTime)) ? Number(entry.toTime) : null,
+      messageCount: Number.isFinite(Number(entry.messageCount)) ? Number(entry.messageCount) : null,
+      sourceFingerprint: entry.sourceFingerprint || '',
+      createdAt: old?.createdAt || now,
+      updatedAt: now,
+    };
+  });
+  if (!saved.length) return [];
+  for (const entry of saved) merged.set(entry.date, entry);
+  phone.diaries[contactId] = {
+    ...previous,
+    entries: [...merged.values()].sort((a, b) => a.date.localeCompare(b.date)),
   };
-
-  if (existingIndex >= 0) store.entries[existingIndex] = saved;
-  else store.entries.push(saved);
-  store.entries.sort((a, b) => String(a.date).localeCompare(String(b.date)));
-
-  saveSettingsDebounced();
-  await persist();
-  logger.info('phone', '[ChatDiaryData] 日记已保存:', contactId, entry.date, `${content.length}字`);
+  try {
+    saveSettingsDebounced();
+    await persist();
+  } catch (error) {
+    // 不自动重试结果不明确的写入；恢复运行时旧日记，避免错误隐藏原文。
+    if (previous) phone.diaries[contactId] = previous;
+    else delete phone.diaries[contactId];
+    throw error;
+  }
   return saved;
 }
 
@@ -123,11 +179,17 @@ export async function removeDiaryEntry(contactId, date) {
   const phone = ensureDiaryData();
   const store = phone.diaries[contactId];
   if (!store || !Array.isArray(store.entries)) return false;
-  const before = store.entries.length;
-  store.entries = store.entries.filter(entry => entry.date !== date);
-  if (store.entries.length === before) return false;
-  saveSettingsDebounced();
-  await persist();
+  const previous = store.entries;
+  const remaining = previous.filter(entry => entry.date !== date);
+  if (remaining.length === previous.length) return false;
+  store.entries = remaining;
+  try {
+    saveSettingsDebounced();
+    await persist();
+  } catch (error) {
+    store.entries = previous;
+    throw error;
+  }
   return true;
 }
 

@@ -778,6 +778,34 @@ async function buildAllChatHistoryInfo(triggeredContactIds, messageNumberMap, st
  * @param {number} startNumber - 起始编号
  * @returns {Promise<Object>} { content: 角色总条目内容, nextNumber: 下一个可用编号 }
  */
+/** 日记沿用普通聊天的角色资料/启用条目，但不重复注入按条数裁切的手机历史。 */
+export async function buildDiaryCharacterContext(contactId, userName = '颜颜') {
+  const contact = (await loadContacts()).find(item => item.id === contactId);
+  if (!contact) throw new Error('未找到日记对应的联系人，请重新打开聊天');
+  const character = getCharacterData(contact);
+  const config = extension_settings.acsusStandalonePhone?.phone?.characterPrompts?.[contactId];
+  const identity = [
+    `日记作者（第一人称“我”）：${contact.name}`,
+    character?.description || character?.data?.description || contact.description || '',
+    character?.personality || character?.data?.personality || '',
+    character?.scenario || character?.data?.scenario || '',
+  ].filter(Boolean).join('\n');
+  let context;
+  if (Array.isArray(config?.items)) {
+    context = await buildCharacterInfoFromConfig(contact, character, {
+      ...config,
+      items: config.items.filter(item => item.type !== 'history-chat'),
+    }, new Map());
+  } else {
+    context = await buildCharacterInfo(contact, character, new Map(), 1);
+  }
+  const persona = power_user.persona_description || '';
+  return `${identity}\n\n${context.content}\n\n[用户设定]\n${persona}\n[/用户设定]`
+    .replace(/__AUTO_USER_PERSONA__/g, () => persona)
+    .replace(/\{\{char\}\}/gi, () => contact.name)
+    .replace(/\{\{user\}\}/gi, () => userName);
+}
+
 async function buildCharacterInfo(contact, character, messageNumberMap, startNumber) {
   // 检查是否有角色专属配置
   const charPromptConfig = extension_settings.acsusStandalonePhone?.phone?.characterPrompts?.[contact.id];
@@ -2023,7 +2051,7 @@ export async function buildHistoryChatInfo(contactId, contact, messageNumberMap)
 
   // 日记替换：已经写成日记的日期，不再发送原始聊天记录。
   const { getDiaryMap, getLocalDateKey, isDiaryEnabled } = await import('../messages/chat-diary-data.js');
-  const diaryMap = isDiaryEnabled() ? getDiaryMap(contactId) : new Map();
+  const diaryMap = isDiaryEnabled() ? getDiaryMap(contactId, validHistory) : new Map();
   let renderList = historyMessages;
   if (diaryMap.size > 0) {
     // 最近一天还在继续聊天，保留原始记录，避免和 recent 段重复。
