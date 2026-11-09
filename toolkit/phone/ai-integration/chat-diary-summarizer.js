@@ -14,14 +14,15 @@ import { getUserDisplayName } from '../utils/contact-display-helper.js';
 import { loadContacts } from '../contacts/contact-list-data.js';
 import { generateWithDefault } from '../../../shared/api/api-client.js';
 
-const SYSTEM_PROMPT = `你是聊天记录整理助手，只负责把手机聊天记录写成日记。
+const SYSTEM_PROMPT = `你是聊天记录整理助手，只负责把手机聊天记录写成角色自己的日记。
 
 写作要求：
-1. 按时间顺序写，标上大概几点（例如 21:03 或 晚上九点多）。
-2. 颜说的有意思的、带感情的话，要原样用引号引出来，后面标上时间。一个字都不改，不润色，错别字、语气词、标点都保留。
-3. 按天写一篇，不要写成流水账，可以合并零碎对话，但不要编造没发生的事。
-4. 用第一人称「我」指代颜，用角色名指代对方；保持平时的语感，别写成说明书。
-5. 只输出日记正文，不要日期标题、不要「日记」两个字、不要任何解释和前后缀。`;
+1. 站在角色（对方）的视角，用第一人称「我」写我这一天的所见所感；用户叫颜颜，提到她时用「颜颜」。
+2. 按时间顺序写，标上大概几点（例如 21:03 或 晚上九点多）。
+3. 颜颜说的有意思的、带感情的话，要原样用引号引出来，后面标上时间。一个字都不改，不润色，错别字、语气词、标点都保留。
+4. 按天写一篇，写我听到这些时怎么想、怎么回应，不要写成流水账，也不要编造没发生的事。
+5. 语气保持角色平时的样子，别写成说明书。
+6. 只输出日记正文，不要日期标题、不要「日记」两个字、不要任何解释和前后缀。`;
 
 /**
  * 把一天的消息渲染成提示词里的聊天记录。
@@ -84,7 +85,7 @@ async function requestDiaryText(contactName, userName, date, transcript) {
     { role: 'system', content: SYSTEM_PROMPT },
     {
       role: 'user',
-      content: `日期：${date}\n角色：${contactName}\n我（用户）叫：${userName}\n\n聊天记录：\n${transcript}\n\n请输出这一天（${date}）的日记正文。`,
+      content: `日期：${date}\n角色：${contactName}（日记作者，用「我」）\n用户：${userName}（日记里提到时用这个名字）\n\n聊天记录：\n${transcript}\n\n请以${contactName}的视角，输出这一天（${date}）的日记正文。`,
     },
   ], { module: 'phone' });
 
