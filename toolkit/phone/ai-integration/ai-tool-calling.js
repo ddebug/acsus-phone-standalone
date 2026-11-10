@@ -12,6 +12,7 @@
 import logger from '../../../logger.js';
 import { saveChatMessage } from '../messages/message-chat-data.js';
 import { loadContacts } from '../contacts/contact-list-data.js';
+import { splitCharacterExtras } from '../messages/character-extras-data.js';
 
 // ========================================
 // [TOOLS] 工具定义
@@ -22,8 +23,8 @@ import { loadContacts } from '../contacts/contact-list-data.js';
  * 
  * @returns {Array<Object>} 工具定义数组
  */
-export function getToolDefinitions() {
-  return [
+export function getToolDefinitions({ extrasEnabled = false } = {}) {
+  const tools = [
     {
       type: 'function',
       function: {
@@ -51,6 +52,25 @@ export function getToolDefinitions() {
       }
     }
   ];
+  if (extrasEnabled) tools.push({
+    type: 'function',
+    function: {
+      name: 'phone_record_extras',
+      description: '同一次响应中，为已有普通消息的角色记录独立心理描写/彩蛋，不发送聊天消息。不是模型内部推理。',
+      parameters: {
+        type: 'object',
+        properties: {
+          contact_name: { type: 'string', description: '本次回复角色的准确姓名' },
+          sections: { type: 'array', items: {
+            type: 'object', properties: { title: { type: 'string' }, content: { type: 'string' } },
+            required: ['title', 'content'],
+          } },
+        },
+        required: ['contact_name', 'sections'],
+      },
+    },
+  });
+  return tools;
 }
 
 /**
@@ -91,11 +111,15 @@ export function extractToolCallsFromOpenAI(response) {
 
     logger.debug('phone','[ToolCalling] 提取到', toolCalls.length, '个 OpenAI 工具调用');
 
-    return toolCalls.map(call => ({
-      id: call.id,
-      name: call.function.name,
-      arguments: JSON.parse(call.function.arguments)
-    }));
+    return toolCalls.flatMap(call => {
+      try {
+        return [{ id: call.id, name: call.function.name, arguments: JSON.parse(call.function.arguments) }];
+      } catch {
+        // A malformed optional extras call must not discard a valid ordinary message call.
+        logger.warn('phone', '[ToolCalling] 已跳过一个参数格式无效的工具调用');
+        return [];
+      }
+    });
   } catch (error) {
     logger.error('phone','[ToolCalling] 解析 OpenAI 工具调用失败:', error);
     return null;
@@ -143,7 +167,7 @@ export function extractToolCallsFromGemini(response) {
  * @param {string} currentContactId - 当前聊天的联系人ID
  * @returns {Promise<Array<Object>>} 执行结果数组
  */
-export async function executeToolCalls(toolCalls, currentContactId) {
+export async function executeToolCalls(toolCalls, currentContactId, options = {}) {
   const results = [];
 
   for (const call of toolCalls) {
@@ -154,7 +178,7 @@ export async function executeToolCalls(toolCalls, currentContactId) {
 
       switch (call.name) {
         case 'phone_send_message':
-          result = await executeSendMessage(call.arguments, currentContactId);
+          result = await executeSendMessage(call.arguments, currentContactId, options);
           break;
 
         default:
@@ -192,8 +216,11 @@ export async function executeToolCalls(toolCalls, currentContactId) {
  * @param {string} currentContactId - 当前聊天的联系人ID
  * @returns {Promise<Object>} 执行结果
  */
-async function executeSendMessage(args, currentContactId) {
-  const { contact_name, message, message_type = 'text' } = args;
+async function executeSendMessage(args, currentContactId, options) {
+  const { contact_name, message_type = 'text' } = args || {};
+  if (typeof args?.message !== 'string') return { error: '消息正文无效' };
+  const message = splitCharacterExtras(args.message).text.trim();
+  if (!message || !['text', 'emoji'].includes(message_type)) return { error: '消息正文为空或类型无效' };
 
   // 匹配联系人ID
   const contacts = await loadContacts();
@@ -209,13 +236,15 @@ async function executeSendMessage(args, currentContactId) {
 
   // 保存消息到数据库
   const messageData = {
+    id: globalThis.crypto.randomUUID(),
+    apiCallId: options.apiCallId || globalThis.crypto.randomUUID(),
     sender: 'contact',
     content: message,
     time: Math.floor(Date.now() / 1000),
     type: message_type
   };
 
-  await saveChatMessage(contact.id, messageData);
+  await saveChatMessage(contact.id, messageData, { strict: true });
 
   logger.info('phone','[ToolCalling] 消息已保存:', contact.name, '-', message.substring(0, 20));
 
@@ -224,6 +253,7 @@ async function executeSendMessage(args, currentContactId) {
     contact_id: contact.id,
     contact_name: contact.name,
     message: message,
+    storedMessage: messageData,
     type: message_type
   };
 }

@@ -21,6 +21,10 @@ import { characters, chat, this_chid, getRequestHeaders } from '/script.js';
 import { power_user } from '/scripts/power-user.js';
 import { chat_completion_sources, oai_settings } from '/scripts/openai.js';
 import { getDefaultPresets } from '../settings/preset-settings-ui.js';
+import {
+  selectHistoryContext, areSameApiCall, buildCompactTimePrefix, compactHistoryTextParts,
+  formatHistoryTime, formatQuoteReference, formatHistoryMessageContent, formatCompactHistory, sanitizeAIHistoryContent,
+} from '../utils/history-context.js';
 /**
  * 获取角色数据
  * @private
@@ -193,81 +197,6 @@ function formatTimestamp(timestamp) {
   const minute = String(date.getMinutes()).padStart(2, '0');
 
   return `${year}-${month}-${day} ${hour}:${minute}`;
-}
-
-/**
- * 生成聊天记录的时间前缀。
- *
- * 默认沿用原有的“跨天显示日期、同天显示时间”规则；
- * 额外优化：同一次 API 调用拆出的多条角色消息，只在第一条显示时间，
- * 后续消息不再重复时间，省下上下文。
- *
- * @private
- * @param {Array<Object>} list - 消息列表
- * @param {number} index - 当前消息下标
- * @param {Object} msg - 当前消息
- * @param {Function} formatTimeForAI - 时间格式化函数
- * @returns {string} 时间前缀（可能为空字符串）
- */
-function buildCompactTimePrefix(list, index, msg, formatTimeForAI) {
-  const previous = index > 0 ? list[index - 1] : null;
-  const prevTime = previous ? previous.time : null;
-  const prefix = formatTimeForAI(msg.time, prevTime, index === 0);
-  if (!prefix || prefix.includes('-')) return prefix;
-  const time = Number(msg?.time);
-  const previousTime = Number(prevTime);
-  const sameCall = previous
-    && previous.sender === 'contact'
-    && msg.sender === 'contact'
-    && Number.isFinite(time)
-    && Number.isFinite(previousTime)
-    && Math.abs(time - previousTime) <= 30;
-  return sameCall ? '' : prefix;
-}
-
-/**
- * 同一条 API 回复里的多条角色消息，在上下文里合并成一行：
- * 只保留一个时间和说话人，后续气泡用“ / ”连接。
- *
- * 只合并“没有时间前缀、且与上一行同一说话人”的行，
- * 用户消息、跨天/跨时段消息都不受影响。
- */
-function compactSameCallLines(text) {
-  if (typeof text !== 'string' || !text.includes(': ')) return text;
-  const parseLine = line => {
-    let rest = line;
-    const numbered = rest.match(/^\[#\d+\] (.*)$/);
-    if (numbered) rest = numbered[1];
-    let hasTime = false;
-    const time = rest.match(/^\[(?:\d{4}-\d{2}-\d{2}|\d{1,2}:\d{2})\]/);
-    if (time) {
-      hasTime = true;
-      rest = rest.slice(time[0].length);
-      if (rest.startsWith(' ')) rest = rest.slice(1);
-    }
-    const separator = rest.indexOf(': ');
-    if (separator <= 0) return null;
-    return {
-      hasTime,
-      sender: rest.slice(0, separator),
-      content: rest.slice(separator + 2),
-    };
-  };
-
-  const lines = text.split('\n');
-  const output = [];
-  let previous = null;
-  for (const line of lines) {
-    const current = parseLine(line);
-    if (current && !current.hasTime && previous && previous.sender === current.sender) {
-      output[output.length - 1] = `${output[output.length - 1]} / ${current.content}`;
-      previous = { ...previous, content: `${previous.content} / ${current.content}` };
-      continue;
-    }
-    output.push(line);
-    previous = current;
-  }
-  return output.join('\n');
 }
 
 /**
@@ -700,20 +629,8 @@ async function buildAllChatHistoryInfo(triggeredContactIds, messageNumberMap, st
     // ✅ 检查返回类型：结构化消息（自定义API）还是 parts 数组（默认API）
     if (chatResult.structuredMessages) {
       // 🔥 自定义API：收集结构化消息数组（稍后在 buildMessagesArray 中插入）
-      allStructuredMessages.push(...chatResult.structuredMessages.map(message => {
-        if (typeof message.content === 'string') {
-          return { ...message, content: compactSameCallLines(message.content) };
-        }
-        if (Array.isArray(message.content)) {
-          return {
-            ...message,
-            content: message.content.map(part => (part?.type === 'text' && typeof part.text === 'string'
-              ? { ...part, text: compactSameCallLines(part.text) }
-              : part)),
-          };
-        }
-        return message;
-      }));
+      // 下层已按消息元数据分组；不再把正文中的“姓名: 文本”二次解析为消息。
+      allStructuredMessages.push(...chatResult.structuredMessages);
       currentNumber = chatResult.nextNumber;
       logger.debug('phone','[ContextBuilder.buildAllChatHistoryInfo] 结构化消息已收集:', contact.name, '消息数量:', chatResult.structuredMessages.length);
 
@@ -724,10 +641,10 @@ async function buildAllChatHistoryInfo(triggeredContactIds, messageNumberMap, st
       }
     } else if (chatResult.parts && chatResult.parts.length > 0) {
       // ✅ 默认API：将 parts 数组转换为纯文本（保持向后兼容）
-      const contentText = compactSameCallLines(chatResult.parts
-        .filter(part => part.type === 'text')  // 只提取文本片段
+      const contentText = chatResult.parts
+        .filter(part => part.type === 'text')  // 只提取已按元数据分组的文本片段
         .map(part => part.text)
-        .join(''));
+        .join('');
 
       if (contentText.trim()) {
         allContent += contentText + '\n\n';
@@ -951,7 +868,6 @@ async function buildCharacterInfoFromConfig(contact, character, config, messageN
  */
 async function buildChatHistoryStructured(contactId, contact, messageNumberMap, startNumber, currentRound, sendSettings, userName, apiSource) {
   // 动态导入工具函数
-  const { formatTimeForAI } = await import('../utils/time-helper.js');
   const { findEmojiById } = await import('../emojis/emoji-manager-data.js');
 
   const imageMode = extension_settings.acsusStandalonePhone?.phone?.imageMode || 'once';
@@ -959,8 +875,7 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
 
   // 加载历史记录
   const allHistory = await loadChatHistory(contactId);
-  const validHistory = allHistory.filter(msg => !msg.excluded);
-  const recentHistory = validHistory.slice(Math.max(0, validHistory.length - sendSettings.recentCount));
+  const { recentMessages: recentHistory } = selectHistoryContext(allHistory, sendSettings, contactId);
 
   let structuredMessages = [];
   let historyImages = [];
@@ -969,6 +884,7 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
 
   // ✅ 轮次合并状态（用于累积连续的 contact 消息）
   let turnBuffer = '';              // 当前轮次的消息文本
+  let turnMergeable = false;        // 上一条实际渲染正文是否可安全合并
   let turnSignature = null;         // 当前轮次的签名（只在第一条消息提取）
   let turnStartNumber = currentNumber;  // 轮次起始编号
   let inContactTurn = false;        // 是否在 contact 的轮次中
@@ -1012,8 +928,18 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
 
     // 重置轮次状态
     turnBuffer = '';
+    turnMergeable = false;
     turnSignature = null;
     inContactTurn = false;
+  };
+
+  const appendContactLine = (msg, timeStr, senderName, body, previous) => {
+    if (turnBuffer && turnMergeable && !timeStr && !body.includes('\n')) {
+      turnBuffer = turnBuffer.replace(/\n$/, '') + ` / ${body}\n`;
+    } else {
+      turnBuffer += `${timeStr || formatHistoryTime(msg.time, previous?.time, !previous)}${senderName}: ${body}\n`;
+    }
+    turnMergeable = !body.includes('\n');
   };
 
   if (recentHistory.length === 0) {
@@ -1029,12 +955,14 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
   for (let index = 0; index < recentHistory.length; index++) {
     const msg = recentHistory[index];
     const senderName = msg.sender === 'user' ? userName : contact.name;
-    const prevTime = index > 0 ? recentHistory[index - 1].time : null;
-    const isFirst = index === 0;
-    const timeStr = buildCompactTimePrefix(recentHistory, index, msg, formatTimeForAI);
+    const previous = index > 0 ? recentHistory[index - 1] : null;
+    // 不同 API 调用必须先结束上一段，避免签名和角色消息串轮。
+    if (inContactTurn && !areSameApiCall(previous, msg)) flushContactTurn();
+    let timeStr = buildCompactTimePrefix(recentHistory, index, msg);
+    if (!timeStr && !inContactTurn) timeStr = formatHistoryTime(msg.time, previous?.time, index === 0);
 
-    // 格式化消息内容
-    let messageContent = msg.content;
+    // 先使用共用文本表示，随后保留真实图片/签名专属分支。
+    let messageContent = formatHistoryMessageContent(msg, { userName, findEmojiById, sources: recentHistory });
     let hasRealImage = false;  // 标记是否有真实图片
 
     if (msg.type === 'poke') {
@@ -1045,7 +973,7 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
     } else if (msg.type === 'image-real' || (msg.type === 'image' && msg.imageUrl)) {
       // ✅ 真实图片：需要拆分成独立 role
       hasRealImage = true;
-      const description = msg.description || '';
+      const description = sanitizeAIHistoryContent(msg, msg.description || '');
 
       // 检查是否需要附加图片（imageMode 和轮次判断）
       if (imageMode === 'always' && msg.imageUrl && msg.imageRound !== currentRound) {
@@ -1060,7 +988,7 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
     } else if (msg.type === 'image-fake' || (msg.type === 'image' && !msg.imageUrl)) {
       messageContent = `[图片]${msg.description || '无描述'}`;
     } else if (msg.type === 'quote') {
-      messageContent = `${formatQuoteReference(msg.quotedMessage, messageNumberMap)}[回复]${msg.replyContent}`;
+      messageContent = `${formatQuoteReference(msg.quotedMessage, recentHistory)}[回复]${msg.replyContent}`;
     } else if (msg.type === 'transfer') {
       messageContent = msg.message ? `[转账]${msg.amount}元 ${msg.message}` : `[转账]${msg.amount}元`;
     } else if (msg.type === 'gift-membership') {
@@ -1072,8 +1000,10 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
     } else if (msg.type === 'recalled') {
       messageContent = msg.sender === 'user' ? `【${userName}撤回了一条消息】` : `[撤回]${msg.originalContent || '(无内容)'}`;
     } else if (msg.type === 'forwarded') {
-      messageContent = formatForwardedMessageForAI(msg, userName, formatTimeForAI);
+      messageContent = formatForwardedMessageForAI(msg, userName);
     }
+
+    messageContent = sanitizeAIHistoryContent(msg, messageContent);
 
     // 🔥 关键逻辑：带真实图片的消息拆分成独立 role
     if (hasRealImage && msg.imageUrl) {
@@ -1104,11 +1034,11 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
 
         // 创建独立的图片消息 role
         const msgRole = msg.sender === 'user' ? 'user' : 'assistant';
-        const description = msg.description || '';
+        const description = sanitizeAIHistoryContent(msg, msg.description || '');
 
         // ✅ 构建消息 content（文本 + 图片）
         const messageParts = [
-          { type: 'text', text: `${timeStr}${senderName}: ${description}` },
+          { type: 'text', text: `${timeStr || formatHistoryTime(msg.time, previous?.time, index === 0)}${senderName}: ${description}` },
           { type: 'image_url', image_url: { url: msg.imageUrl } }  // 占位符，后续转base64
         ];
 
@@ -1133,7 +1063,7 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
         currentNumber++;
       } else {
         // ❌ 不发送图片：按文本消息处理，显示为 [图片]描述
-        const description = msg.description || '';
+        const description = sanitizeAIHistoryContent(msg, msg.description || '');
         messageContent = `[图片]${description || '无描述'}`;
 
         // 根据 sender 累积到对应 buffer（和普通文本消息一样）
@@ -1149,13 +1079,8 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
             turnStartNumber = currentNumber;
           }
 
-          // 累积消息文本
-          if (msg.id) {
-            messageNumberMap.set(currentNumber, msg.id);
-            turnBuffer += `${timeStr}${senderName}: ${messageContent}\n`;
-          } else {
-            turnBuffer += `${timeStr}${senderName}: ${messageContent}\n`;
-          }
+          if (msg.id) messageNumberMap.set(currentNumber, msg.id);
+          appendContactLine(msg, timeStr, senderName, messageContent, previous);
 
           // 提取签名（只在第一条消息）
           if (!turnSignature && msg.metadata?.gemini?.thoughtSignature) {
@@ -1191,13 +1116,9 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
         turnStartNumber = currentNumber;
       }
 
-      // 累积消息文本
-      if (msg.id) {
-        messageNumberMap.set(currentNumber, msg.id);
-        turnBuffer += `${timeStr}${senderName}: ${messageContent}\n`;
-      } else {
-        turnBuffer += `${timeStr}${senderName}: ${messageContent}\n`;
-      }
+      // 只依据当前/上一条真实消息的元数据合并，绝不扫描消息正文中的伪造姓名行。
+      if (msg.id) messageNumberMap.set(currentNumber, msg.id);
+      appendContactLine(msg, timeStr, senderName, messageContent, previous);
 
       // 提取签名（只在第一条消息）
       if (!turnSignature && msg.metadata?.gemini?.thoughtSignature) {
@@ -1259,7 +1180,7 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
  *
  * 只包含最新的recentCount条消息（不包括excluded的）
  * 优化规则：
- * 1. 临时编号：每条消息加 [#N] 前缀（用于AI引用）
+ * 1. 保留内部编号映射（供 API 引用解析），不输出楼层标签
  * 2. 时间智能分组（跨天显示日期，同天只显示时间）
  * 3. 表情消息添加 [表情] 前缀
  * 4. 用户名使用真实姓名（不用"你"）
@@ -1268,7 +1189,6 @@ async function buildChatHistoryStructured(contactId, contact, messageNumberMap, 
  */
 export async function buildChatHistoryInfo(contactId, contact, messageNumberMap, startNumber = 1, apiSource = 'default', imagesToAttach = []) {
   // 动态导入工具函数
-  const { formatTimeForAI } = await import('../utils/time-helper.js');
   const { getUserDisplayName } = await import('../utils/contact-display-helper.js');
   const { findEmojiById } = await import('../emojis/emoji-manager-data.js');
   const { getChatSendSettings } = await import('../messages/message-chat-data.js');
@@ -1301,8 +1221,7 @@ export async function buildChatHistoryInfo(contactId, contact, messageNumberMap,
   const allHistory = await loadChatHistory(contactId);
 
   // 过滤出非排除的消息，取最新的recentCount条
-  const validHistory = allHistory.filter(msg => !msg.excluded);
-  const recentHistory = validHistory.slice(Math.max(0, validHistory.length - sendSettings.recentCount));
+  const { recentMessages: recentHistory } = selectHistoryContext(allHistory, sendSettings, contactId);
 
   let currentNumber = startNumber;
 
@@ -1311,14 +1230,11 @@ export async function buildChatHistoryInfo(contactId, contact, messageNumberMap,
     for (let index = 0; index < recentHistory.length; index++) {
       const msg = recentHistory[index];
       const senderName = msg.sender === 'user' ? userName : contact.name;
-      const prevTime = index > 0 ? recentHistory[index - 1].time : null;
-      const isFirst = index === 0;
-
       // 智能时间显示（跨天显示日期；同一次 API 回复只显示一次时间）
-      const timeStr = buildCompactTimePrefix(recentHistory, index, msg, formatTimeForAI);
+      const timeStr = buildCompactTimePrefix(recentHistory, index, msg);
 
-      // 根据消息类型添加前缀
-      let messageContent = msg.content;
+      // 普通类型沿用同一个文本表示；下方只保留图片附件/异步资源的特殊处理。
+      let messageContent = formatHistoryMessageContent(msg, { userName, findEmojiById, sources: recentHistory });
       let messagePrefix = '';
 
       if (msg.type === 'poke') {
@@ -1335,7 +1251,7 @@ export async function buildChatHistoryInfo(contactId, contact, messageNumberMap,
         }
       } else if (msg.type === 'image-real') {
         // ✅ 真实图片（新类型）：在聊天记录中显示[图片]标记
-        const description = msg.description || '';
+        const description = sanitizeAIHistoryContent(msg, msg.description || '');
         messageContent = description ? `[图片]${description}` : '[图片]';
 
         // imageMode = 'always' 时，历史图片也要重新发送给AI
@@ -1358,7 +1274,7 @@ export async function buildChatHistoryInfo(contactId, contact, messageNumberMap,
         // ✅ 旧数据兼容：根据 imageUrl 判断类型
         if (msg.imageUrl) {
           // 真实图片：在聊天记录中显示[图片]标记
-          const description = msg.description || '';
+          const description = sanitizeAIHistoryContent(msg, msg.description || '');
           messageContent = description ? `[图片]${description}` : '[图片]';
 
           // imageMode = 'always' 时，历史图片也要重新发送给AI
@@ -1379,8 +1295,8 @@ export async function buildChatHistoryInfo(contactId, contact, messageNumberMap,
           messageContent = `[图片]${msg.description || '无描述'}`;
         }
       } else if (msg.type === 'quote') {
-        // 引用消息：上下文里已有的原文只写楼层号，避免重复插入
-        messageContent = `${formatQuoteReference(msg.quotedMessage, messageNumberMap)}[回复]${msg.replyContent}`;
+        // 已知来源仅保留引用提示，窗口外来源使用短预览。
+        messageContent = `${formatQuoteReference(msg.quotedMessage, recentHistory)}[回复]${msg.replyContent}`;
       } else if (msg.type === 'transfer') {
         // 转账消息：格式化为 [转账]金额元 留言内容
         messageContent = msg.message
@@ -1405,13 +1321,15 @@ export async function buildChatHistoryInfo(contactId, contact, messageNumberMap,
         }
       } else if (msg.type === 'forwarded') {
         // 转发消息：格式化内层消息，添加时间戳
-        messageContent = formatForwardedMessageForAI(msg, userName, formatTimeForAI);
+        messageContent = formatForwardedMessageForAI(msg, userName);
       }
+
+      messageContent = sanitizeAIHistoryContent(msg, messageContent);
 
       // 如果消息来自收藏，添加[收藏夹]前缀和原消息信息（同一行）
       if (msg.fromFavorite) {
         const originalTime = msg.favoriteOriginalTime || msg.time;
-        const originalTimeStr = formatTimeForAI(originalTime, null, true);
+        const originalTimeStr = formatHistoryTime(originalTime, null, true);
         const originalSender = msg.favoriteOriginalSender || senderName;
         // 去掉 originalTimeStr 末尾的换行符，保持在同一行
         const cleanTimeStr = originalTimeStr.replace(/\n$/, '');
@@ -1423,7 +1341,8 @@ export async function buildChatHistoryInfo(contactId, contact, messageNumberMap,
         messageNumberMap.set(currentNumber, msg.id);
         parts.push({
           type: 'text',
-          text: `${timeStr}${senderName}: ${messagePrefix}${messageContent}`
+          text: `${timeStr}${senderName}: ${messagePrefix}${messageContent}`,
+          phoneMessage: msg, phoneSender: senderName, phoneContent: `${messagePrefix}${messageContent}`, phoneNewline: false,
         });
         currentNumber++;
 
@@ -1444,7 +1363,8 @@ export async function buildChatHistoryInfo(contactId, contact, messageNumberMap,
         // 旧数据兼容：没有ID的消息不加编号
         parts.push({
           type: 'text',
-          text: `${timeStr}${senderName}: ${messagePrefix}${messageContent}\n`
+          text: `${timeStr}${senderName}: ${messagePrefix}${messageContent}\n`,
+          phoneMessage: msg, phoneSender: senderName, phoneContent: `${messagePrefix}${messageContent}`, phoneNewline: true,
         });
       }
     }
@@ -1461,48 +1381,10 @@ export async function buildChatHistoryInfo(contactId, contact, messageNumberMap,
   logger.debug('phone','[ContextBuilder.buildChatHistoryInfo] - 历史图片数量:', historyImages.length);
 
   return {
-    parts,  // ← 返回结构化数组
+    parts: compactHistoryTextParts(parts),  // 图片占位符与文本边界保持不变
     nextNumber: currentNumber,
     historyImages  // ← 返回历史图片列表（imageMode='always'时有值）
   };
-}
-
-/**
- * 格式化引用消息（用于AI上下文）
- *
- * @private
- * @param {Object} quotedMessage - 被引用的消息
- * @returns {string} 格式化后的文本
- */
-function formatQuotedMessageForAI(quotedMessage) {
-  if (!quotedMessage) return '未知消息';
-
-  switch (quotedMessage.type) {
-    case 'text':
-      return quotedMessage.content || '[空文本]';
-    case 'emoji':
-      return `[表情]${quotedMessage.content || quotedMessage.emojiName || '未知'}`;
-    case 'image':
-      return `[图片]${quotedMessage.description || '无描述'}`;
-    case 'quote':
-      // 引用的引用：只引用回复部分，不嵌套
-      return quotedMessage.replyContent || '[空回复]';
-    default:
-      return '[不支持的类型]';
-  }
-}
-
-/**
- * 格式化引用：只保留短文本，避免把原文整段再插一遍。
- *
- * @private
- * @param {Object} quotedMessage - 被引用的消息
- * @returns {string} 引用前缀
- */
-function formatQuoteReference(quotedMessage) {
-  const text = formatQuotedMessageForAI(quotedMessage);
-  const shortText = text.length > 40 ? `${text.slice(0, 40)}…` : text;
-  return `[引用]${shortText}`;
 }
 
 /**
@@ -1511,7 +1393,6 @@ function formatQuoteReference(quotedMessage) {
  * @private
  * @param {Object} forwardedMsg - 转发消息对象
  * @param {string} userName - 用户显示名称
- * @param {Function} formatTimeForAI - 时间格式化函数
  * @returns {string} 格式化后的内容
  *
  * @description
@@ -1530,71 +1411,8 @@ function formatQuoteReference(quotedMessage) {
  * [/白沉与鬼面的聊天记录]
  * [/转发消息]
  */
-function formatForwardedMessageForAI(forwardedMsg, userName, formatTimeForAI) {
-  if (!forwardedMsg.messages || forwardedMsg.messages.length === 0) {
-    return '[转发消息]\n[空聊天记录]\n[/空聊天记录]\n[/转发消息]';
-  }
-
-  // 构建标题
-  const originalContactName = forwardedMsg.originalContactName || '未知联系人';
-  let content = `[转发消息]\n[${userName}与${originalContactName}的聊天记录]\n`;
-
-  // 遍历内层消息，添加时间戳
-  forwardedMsg.messages.forEach((innerMsg, index) => {
-    // 替换 {{user}} 为实际用户名
-    let senderName = innerMsg.senderName;
-    if (senderName === '{{user}}') {
-      senderName = userName;
-    }
-
-    // 获取时间戳（智能分组：跨天显示日期，同天只显示时间）
-    const prevTime = index > 0 ? forwardedMsg.messages[index - 1].time : null;
-    const isFirst = index === 0;
-    const timeStr = formatTimeForAI(innerMsg.time, prevTime, isFirst);
-
-    // 获取消息内容
-    let messageText = '';
-    switch (innerMsg.type) {
-      case 'text':
-        messageText = innerMsg.content || '';
-        break;
-      case 'emoji':
-        messageText = `[表情]${innerMsg.emojiName || ''}`;
-        break;
-      case 'image':
-        messageText = `[图片]${innerMsg.description || ''}`;
-        break;
-      case 'quote':
-        messageText = `[引用]${innerMsg.replyContent || ''}`;
-        break;
-      case 'transfer':
-        messageText = `[转账]${innerMsg.amount || '0'}元`;
-        break;
-      case 'redpacket':
-        messageText = `[红包]${innerMsg.amount || '0'}元`;
-        break;
-      case 'video':
-        messageText = `[视频]${innerMsg.description || ''}`;
-        break;
-      case 'file':
-        messageText = `[文件]${innerMsg.filename || ''}`;
-        break;
-      case 'recalled':
-        messageText = '[撤回的消息]';
-        break;
-      case 'poke':
-        messageText = '[戳一戳]';
-        break;
-      default:
-        messageText = innerMsg.content || '[未知消息]';
-    }
-
-    // 添加消息（不加临时编号）
-    content += `${timeStr}${senderName}: ${messageText}\n`;
-  });
-
-  content += `[/${userName}与${originalContactName}的聊天记录]\n[/转发消息]`;
-  return content;
+function formatForwardedMessageForAI(forwardedMsg, userName) {
+  return formatHistoryMessageContent(forwardedMsg, { userName });
 }
 
 /**
@@ -1689,7 +1507,6 @@ async function buildSignatureHistory() {
  */
 async function buildUserPendingOps(pendingMessages, messageNumberMap, startNumber = 1) {
   // 动态导入工具函数
-  const { formatTimeForAI } = await import('../utils/time-helper.js');
   const { getUserDisplayName } = await import('../utils/contact-display-helper.js');
   const { findEmojiById } = await import('../emojis/emoji-manager-data.js');
   const { loadContacts } = await import('../contacts/contact-list-data.js');
@@ -1738,9 +1555,7 @@ async function buildUserPendingOps(pendingMessages, messageNumberMap, startNumbe
       const msg = messages[index];
 
       // 判断是否需要显示日期分组
-      const prevTime = index > 0 ? messages[index - 1].time : null;
-      const isFirst = index === 0;
-      const timeStr = buildCompactTimePrefix(messages, index, msg, formatTimeForAI);
+      const timeStr = formatHistoryTime(msg.time, index ? messages[index - 1].time : null, index === 0);
 
       // 根据消息类型添加前缀
       let messageContent = msg.content;
@@ -1766,7 +1581,7 @@ async function buildUserPendingOps(pendingMessages, messageNumberMap, startNumbe
         logger.info('phone','[ContextBuilder.buildUserPendingOps]   - 图片轮次(imageRound):', msg.imageRound);
         logger.info('phone','[ContextBuilder.buildUserPendingOps]   - imageMode设置:', imageMode);
 
-        const description = msg.description || '';
+        const description = sanitizeAIHistoryContent(msg, msg.description || '');
 
         // 判断是否发送给AI
         if (imageMode === 'never') {
@@ -1838,11 +1653,11 @@ async function buildUserPendingOps(pendingMessages, messageNumberMap, startNumbe
         const typeText = msg.membershipType === 'vip' ? 'VIP' : 'SVIP';
         messageContent = `[开会员]${msg.months}个月${typeText}会员`;
       } else if (msg.type === 'quote') {
-        // ✅ 引用消息：上下文里已有的原文只写楼层号，避免重复插入
-        messageContent = `${formatQuoteReference(msg.quotedMessage, messageNumberMap)}[回复]${msg.replyContent}`;
+        // 已知来源只留引用提示；窗口外来源只留短预览，不输出楼层。
+        messageContent = `${formatQuoteReference(msg.quotedMessage, messageNumberMap)}[回复]${msg.replyContent || ''}`;
       } else if (msg.type === 'forwarded') {
         // ✅ 转发消息：格式化内层消息
-        messageContent = formatForwardedMessageForAI(msg, userName, formatTimeForAI);
+        messageContent = formatForwardedMessageForAI(msg, userName);
       } else if (msg.type === 'recalled') {
         // 撤回消息：用户撤回只显示"撤回了一条消息"（AI看不到原内容）
         messageContent = `【${userName}撤回了一条消息】`;
@@ -1852,26 +1667,9 @@ async function buildUserPendingOps(pendingMessages, messageNumberMap, startNumbe
         messageContent = msg.content;
       }
 
-      // ✅ 处理日期分组和消息编号
-      if (msg.id) {
-        messageNumberMap.set(currentNumber, msg.id);
-
-        // 检查时间格式是否包含换行（跨天分组）
-        if (timeStr.endsWith('\n')) {
-          // 跨天：先输出日期分组（不带编号），再输出消息（带编号和时间）
-          const date = new Date(msg.time * 1000);
-          const hour = String(date.getHours()).padStart(2, '0');
-          const minute = String(date.getMinutes()).padStart(2, '0');
-          content += timeStr; // 日期分组：[2025-11-05]\n
-          content += `[#${currentNumber}] [${hour}:${minute}] ${userName}: ${messageContent}\n`;
-        } else {
-          // 同一天：正常格式
-          content += `[#${currentNumber}] ${timeStr}${userName}: ${messageContent}\n`;
-        }
-        currentNumber++;
-      } else {
-        content += `${timeStr}${userName}: ${messageContent}\n`;
-      }
+      // 保留 API 内部编号映射，不把楼层标签写进上下文。
+      if (msg.id) messageNumberMap.set(currentNumber++, msg.id);
+      content += `${timeStr}${userName}: ${messageContent}\n`;
     }
 
     // 添加空行分隔不同联系人
@@ -1930,7 +1728,7 @@ async function buildUserPendingOps(pendingMessages, messageNumberMap, startNumbe
     content += `\n[其他操作]\n`;
 
     for (const action of signatureActions) {
-      const time = formatTimeForAI(action.time, null, false);
+      const time = formatHistoryTime(action.time, null, false);
 
       if (action.actionType === 'update') {
         // 用户修改自己的个签
@@ -2028,11 +1826,10 @@ async function buildUserPendingOps(pendingMessages, messageNumberMap, startNumbe
  *
  * @description
  * 包含最新recentCount之前的historyCount条消息（不包括excluded的）
- * 每条消息加临时编号 [#N]，保存到映射表
+ * 原始窗口内有效日记替换；正文不输出楼层，内部编号映射仍保留。
  */
 export async function buildHistoryChatInfo(contactId, contact, messageNumberMap) {
   // 动态导入工具函数
-  const { formatTimeForAI } = await import('../utils/time-helper.js');
   const { getUserDisplayName } = await import('../utils/contact-display-helper.js');
   const { findEmojiById } = await import('../emojis/emoji-manager-data.js');
   const { getChatSendSettings } = await import('../messages/message-chat-data.js');
@@ -2043,115 +1840,19 @@ export async function buildHistoryChatInfo(contactId, contact, messageNumberMap)
   // 加载历史记录
   const allHistory = await loadChatHistory(contactId);
 
-  // 过滤出非排除的消息
-  const validHistory = allHistory.filter(msg => !msg.excluded);
-
-  // 计算历史消息范围
-  const totalValid = validHistory.length;
-  const historyStart = Math.max(0, totalValid - sendSettings.recentCount - sendSettings.historyCount);
-  const historyEnd = Math.max(0, totalValid - sendSettings.recentCount);
-  const historyMessages = validHistory.slice(historyStart, historyEnd);
-
-  if (historyMessages.length === 0) {
-    return { content: '', nextNumber: 1 };  // 没有历史消息
-  }
-
-  // 日记替换：已经写成日记的日期，不再发送原始聊天记录。
-  const { getDiaryMap, getLocalDateKey, isDiaryEnabled } = await import('../messages/chat-diary-data.js');
-  const diaryMap = isDiaryEnabled() ? getDiaryMap(contactId, validHistory) : new Map();
-  let renderList = historyMessages;
-  if (diaryMap.size > 0) {
-    // 最近一天还在继续聊天，保留原始记录，避免和 recent 段重复。
-    const lastDayKey = getLocalDateKey(validHistory[validHistory.length - 1]?.time);
-    const compacted = [];
-    let lastDiaryDate = null;
-    for (const msg of historyMessages) {
-      const dayKey = getLocalDateKey(msg?.time);
-      const entry = dayKey && dayKey !== lastDayKey ? diaryMap.get(dayKey) : null;
-      if (entry) {
-        if (dayKey !== lastDiaryDate) {
-          compacted.push({ __diary: true, date: dayKey, content: entry.content, time: msg.time });
-          lastDiaryDate = dayKey;
-        }
-        continue;
-      }
-      lastDiaryDate = null;
-      compacted.push(msg);
-    }
-    renderList = compacted;
-    logger.info('phone','[ContextBuilder.buildHistoryChatInfo] 日记替换:', contactId, `${historyMessages.length}条 → ${renderList.length}段`);
-  }
-
-  let content = '';
+  const { historyMessages, historyRenderList } = selectHistoryContext(allHistory, sendSettings, contactId);
   let currentNumber = 1;
-
-  // 遍历历史消息
-  renderList.forEach((msg, index) => {
-    if (msg.__diary) {
-      content += `[日记 ${msg.date}]\n${msg.content}\n\n`;
-      return;
-    }
-    const senderName = msg.sender === 'user' ? userName : contact.name;
-    const prevTime = index > 0 ? renderList[index - 1].time : null;
-    const isFirst = index === 0;
-
-    // 智能时间显示
-    const timeStr = buildCompactTimePrefix(renderList, index, msg, formatTimeForAI);
-
-    // 根据消息类型添加前缀
-    let messageContent = msg.content;
-    if (msg.type === 'poke') {
-      // 戳一戳消息
-      messageContent = '[戳一戳]';
-    } else if (msg.type === 'emoji') {
-      const emoji = findEmojiById(msg.content);
-      if (emoji) {
-        messageContent = `[表情]${emoji.name}`;
-      } else {
-        messageContent = msg.emojiName ? `[表情]${msg.emojiName}` : `[表情包已删除]`;
-      }
-    } else if (msg.type === 'image-real') {
-      // ✅ 真实图片（新类型）：只显示描述（图片已在历史中识别）
-      messageContent = msg.description || '';
-    } else if (msg.type === 'image-fake') {
-      // ✅ 假装图片（新类型）：显示 [图片]描述
-      messageContent = `[图片]${msg.description || '无描述'}`;
-    } else if (msg.type === 'image') {
-      // ✅ 旧数据兼容：根据 imageUrl 判断类型
-      if (msg.imageUrl) {
-        // 真实图片：只显示描述
-        messageContent = msg.description || '';
-      } else {
-        // 假装图片：显示 [图片]描述
-        messageContent = `[图片]${msg.description || '无描述'}`;
-      }
-    } else if (msg.type === 'quote') {
-      // 引用消息：上下文里已有的原文只写楼层号，避免重复插入
-      messageContent = `${formatQuoteReference(msg.quotedMessage, messageNumberMap)}[回复]${msg.replyContent}`;
-    } else if (msg.type === 'forwarded') {
-      // 转发消息：格式化内层消息，添加时间戳
-      messageContent = formatForwardedMessageForAI(msg, userName, formatTimeForAI);
-    }
-
-    // ✅ 添加临时编号 + 保存映射
-    if (msg.id) {
-      messageNumberMap.set(currentNumber, msg.id);
-      content += `${timeStr}${senderName}: ${messageContent}\n`;
-      currentNumber++;
-    } else {
-      // 旧数据兼容：没有ID的消息不加编号
-      content += `${timeStr}${senderName}: ${messageContent}\n`;
-    }
+  const content = formatCompactHistory(historyRenderList, {
+    userName,
+    contactName: contact.name,
+    formatContent: msg => formatHistoryMessageContent(msg, { userName, findEmojiById, sources: historyRenderList }),
+    onMessage: msg => {
+      // 编号映射仍供 API 引用解析使用，但正文不输出楼层标签。
+      if (msg.id) messageNumberMap.set(currentNumber++, msg.id);
+    },
   });
-
   logger.debug('phone','[ContextBuilder] 历史聊天记录构建完成，共', historyMessages.length, '条');
-
-  // 含日记段落时不做同调用合并，避免把日记正文当成消息行处理。
-  const usedDiary = renderList.some(item => item && item.__diary);
-  return {
-    content: usedDiary ? content : compactSameCallLines(content),
-    nextNumber: currentNumber
-  };
+  return { content, nextNumber: currentNumber };
 }
 
 /**

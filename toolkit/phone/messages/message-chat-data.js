@@ -12,6 +12,7 @@ import logger from '../../../logger.js';
 
 
 import { incrementUnread } from './unread-badge-manager.js';
+import { splitCharacterExtras } from './character-extras-data.js';
 
 /**
  * 获取聊天文件路径（基于extension_settings）
@@ -142,6 +143,16 @@ function getMessagePreview(message) {
  * - quote: quotedMessage + replyContent
  */
 export async function saveChatMessage(contactId, message, { strict = false } = {}) {
+  if (message?.sender === 'contact') {
+    for (const field of ['content', 'replyContent', 'description', 'message', 'originalContent']) {
+      if (typeof message[field] !== 'string') continue;
+      const clean = splitCharacterExtras(message[field]).text;
+      if (field === 'content' && clean !== message[field] && !clean.trim() && ['text', 'emoji'].includes(message.type || 'text')) {
+        throw new Error('附加内容不能单独作为聊天消息保存');
+      }
+      message[field] = clean;
+    }
+  }
   ensurePhoneData();
 
   const chatKey = getChatKey(contactId);

@@ -12,6 +12,7 @@ import {
 } from '../../../standalone/phone-settings.js';
 import { saveChatMessage } from '../messages/message-chat-data.js';
 import { getProactiveSettings } from './proactive-settings.js';
+import { persistCharacterExtrasTurn } from './character-extras-integration.js';
 
 const PERIOD = 900000;
 // setInterval/lock/storage micro-jitter must not turn a 15m check into every other tick.
@@ -237,12 +238,13 @@ async function attempt(run, phone, state, settings, contactId, entry, user, slot
     await persist();
     return;
   }
-  if (typeof response !== 'string' || !response.trim()) {
+  const responseText = typeof response === 'string' ? response : response?.text;
+  if (typeof responseText !== 'string' || !responseText.trim()) {
     entry.lastOutcome = 'invalid-response';
     await persist();
     return;
   }
-  const text = response.trim();
+  const text = responseText.trim();
   if (text === '[不发]') {
     const marker = entry.awaitingUser;
     entry.lastOutcome = 'no-send';
@@ -270,6 +272,7 @@ async function attempt(run, phone, state, settings, contactId, entry, user, slot
   }
   const message = {
     id: globalThis.crypto.randomUUID(),
+    apiCallId: response?.extrasTurn?.id || requestId,
     type: 'text', sender: 'contact', content: text,
     time: Math.floor(sentAt.getTime() / 1000), proactive: true, proactiveRequestId: requestId,
   };
@@ -281,6 +284,11 @@ async function attempt(run, phone, state, settings, contactId, entry, user, slot
   if (!storageReady() || phoneData() !== phone || phone.proactiveState !== state
     || !phone.chats?.[`chat_${contactId}`]?.some(item => item.id === message.id
       && item.proactiveRequestId === requestId)) throw new Error('storage-unverified');
+  // 小剧场只关联这条已确认写入的消息，既不新增气泡也不回灌下次请求。
+  try {
+    await persistCharacterExtrasTurn(response?.extrasTurn, response?.extrasBlocks,
+      new Map([[contactId, new Set([message.id])]]));
+  } catch { /* Ordinary message remains saved; no model retry for a sidecar. */ }
   // Presentation is downstream of verified persistence only. Its failure must
   // not lead to retrying the stored bubble, decrementing budget or clearing await.
   try {

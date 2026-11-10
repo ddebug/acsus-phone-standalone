@@ -165,6 +165,15 @@ function createSettingsList(contact) {
             </div>
         </div>
 
+        <!-- 角色小剧场：原生按钮支持键盘与辅助技术 -->
+        <button type="button" class="chat-settings-item" data-action="character-extras"
+                aria-label="打开角色小剧场" style="width:calc(100% - 2em);border:0;font:inherit;text-align:left;">
+            <span class="chat-settings-item-label">角色小剧场</span>
+            <span class="chat-settings-item-right" aria-hidden="true">
+                <i class="fa-solid fa-chevron-right"></i>
+            </span>
+        </button>
+
         <!-- 聊天记录发送设置 -->
         <div class="chat-settings-section-title">聊天记录发送设置</div>
 
@@ -302,6 +311,11 @@ function bindSettingsEvents(list, contact) {
     handleChatDiary(contact);
   });
 
+  // 角色小剧场
+  list.querySelector('[data-action="character-extras"]').addEventListener('click', () => {
+    handleCharacterExtras(contact);
+  });
+
   // 数字输入框
   list.querySelectorAll('.chat-settings-number-input').forEach((el) => {
     const input = /** @type {HTMLInputElement} */ (el);
@@ -427,6 +441,17 @@ async function handleChatDiary(contact) {
   const overlay = document.querySelector('.phone-overlay');
   if (overlay) {
     showPage(/** @type {HTMLElement} */(overlay), 'chat-diary', {
+      contactId: contact.id
+    });
+  }
+}
+
+/** 打开当前联系人的角色小剧场（写作设置全局共用）。 */
+async function handleCharacterExtras(contact) {
+  const { showPage } = await import('../phone-main-ui.js');
+  const overlay = document.querySelector('.phone-overlay');
+  if (overlay) {
+    await showPage(/** @type {HTMLElement} */(overlay), 'character-extras', {
       contactId: contact.id
     });
   }

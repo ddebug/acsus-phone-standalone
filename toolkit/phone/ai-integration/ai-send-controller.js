@@ -30,6 +30,15 @@ import {
   executeToolCalls
 } from './ai-tool-calling.js';
 import { getDefaultParams } from '../../../shared/api/api-params-config.js';
+import {
+  prepareCharacterExtrasTurn, splitCharacterExtras, persistCharacterExtrasTurn, extrasBlockFromTool,
+} from './character-extras-integration.js';
+
+function noteDelivered(map, contactId, message) {
+  if (!message?.id) return;
+  if (!map.has(contactId)) map.set(contactId, new Set());
+  map.get(contactId).add(message.id);
+}
 
 // ========================================
 // [CORE] API管理类
@@ -296,8 +305,9 @@ export class PhoneAPI {
         content: typeof message.content === 'string' ? message.content :
           (Array.isArray(message.content) ? message.content.filter(part => part.type === 'text').map(part => part.text || '').join('\n') : ''),
       })).filter(message => message.content.trim());
-      messages.push({ role: 'system', content: `本次只检查角色${contact.name}是否主动问候，用户没有发出新消息。以下隐藏系统提醒不是用户发言，不得复述它或伪造用户回应。你可选择完全不发，此时只返回[不发]。如果选择发送，只返回一条普通文字消息的正文（可有换行），不要角色/消息标签、思考过程、工具调用、转账、好友申请、个签或其他操作。不要向其他联系人发消息。` });
+      messages.push({ role: 'system', content: `本次只检查角色${contact.name}是否主动问候，用户没有发出新消息。以下隐藏系统提醒不是用户发言，不得复述它或伪造用户回应。你可选择完全不发，此时只返回[不发]。如果选择发送，只返回一条普通文字消息的正文（可有换行），不要角色/消息标签、思考过程、工具调用、转账、好友申请、个签或其他操作。不要向其他联系人发消息。只回[不发]时不附加任何内容；启用角色小剧场时，可在正文后追加其专用包裹，包裹不属于发出的消息。` });
       messages.push({ role: 'user', content: hiddenPrompt });
+      const extrasTurn = await prepareCharacterExtrasTurn(messages, contactId);
       check();
       const settings = this.getSettings();
       let result;
@@ -313,7 +323,8 @@ export class PhoneAPI {
       check();
       const finish = result.raw?.choices?.[0]?.finish_reason || result.raw?.stop_reason;
       if (finish === 'length' || finish === 'max_tokens') throw new Error('主动消息输出被截断，未发送');
-      let text = String(result.text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      const separated = splitCharacterExtras(String(result.text || ''));
+      let text = separated.text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
       // 兼容误用正常标签的单角色纯文字回复，不走具有副作用的常规操作解析器。
       if (text.startsWith('[角色-')) {
         const blocks = [...text.matchAll(/\[角色-([^\]]+)\]/g)];
@@ -324,13 +335,13 @@ export class PhoneAPI {
         if (opening < 0) throw new Error('主动回复格式无效');
         text = text.slice(opening + '[消息]'.length).replace(/\[\/消息\][\s\S]*$/, '').replace(/\[\/角色-[^\]]+\]\s*$/, '').trim();
       }
-      if (text === '[不发]') return text;
+      if (text === '[不发]') return { text, extrasTurn, extrasBlocks: [] };
       if (!text) throw new Error('主动回复为空，未发送');
       if (text.length > 8000 || text.includes(hiddenPrompt) ||
           /\[(?:系统[:：]|操作-|角色-|消息\]|改个签\]|好友申请\]|转账\]|红包\]|约定计划|开会员\]|送会员\])/.test(text) || /<think>/i.test(text)) {
         throw new Error('主动回复不符合普通文字要求，未发送');
       }
-      return text;
+      return { text, extrasTurn, extrasBlocks: separated.blocks };
     } finally {
       signal?.removeEventListener('abort', cancel);
       if (this.proactiveAbortController === controller) this.proactiveAbortController = null;
@@ -353,6 +364,10 @@ export class PhoneAPI {
 
     // 否则使用传统的标签解析模式
     logger.info('phone', '[PhoneAPI.sendToAI] 使用传统标签解析模式');
+    let extrasTurn = null;
+    let extrasBlocks = [];
+    let requestController = null;
+    const delivered = new Map();
 
     try {
       // 获取待发送消息（先从暂存队列读取）
@@ -434,6 +449,7 @@ export class PhoneAPI {
       let messages = buildResult.messages;  // ← 改为 let，允许后续 Gemini 格式转换
       const messageNumberMap = buildResult.messageNumberMap;
       const imagesToAttach = buildResult.imagesToAttach || [];
+      extrasTurn = await prepareCharacterExtrasTurn(messages, contactId, allPendingMessages);
 
       logger.debug('phone', '[PhoneAPI] messages数组构建完成，共', messages.length, '条，编号映射表大小:', messageNumberMap.size);
       if (imagesToAttach.length > 0) {
@@ -444,7 +460,8 @@ export class PhoneAPI {
       logger.debug('phone', '[PhoneAPI] 跳过手动宏替换（由共享请求链处理）');
 
       // 创建终止控制器
-      this.currentAbortController = new AbortController();
+      requestController = new AbortController();
+      this.currentAbortController = requestController;
       this.isGenerating = true;
       this.currentGeneratingContactId = contactId;  // ← 记录正在生成的联系人ID
 
@@ -701,11 +718,11 @@ export class PhoneAPI {
 
           const result = sharedConfig.stream
             ? await generateStream(sharedConfig, messages, {
-              signal: this.currentAbortController.signal,
+              signal: requestController.signal,
               module: 'phone'
             })
             : await generate(sharedConfig, messages, {
-              signal: this.currentAbortController.signal,
+              signal: requestController.signal,
               module: 'phone'
             });
 
@@ -718,7 +735,7 @@ export class PhoneAPI {
         } else {
           logger.info('phone', '[PhoneAPI] 使用共享API层（跟随酒馆设置）');
           const result = await generateWithDefault(messages, {
-            signal: this.currentAbortController.signal,
+            signal: requestController.signal,
             module: 'phone'
           });
 
@@ -729,7 +746,7 @@ export class PhoneAPI {
         }
       } catch (error) {
         const isAbort = error?.name === 'AbortError'
-          || this.currentAbortController?.signal?.aborted
+          || requestController?.signal?.aborted
           || (error instanceof ApiError && error.type === API_ERROR_TYPES.ABORT);
 
         if (isAbort) {
@@ -747,7 +764,7 @@ export class PhoneAPI {
       }
 
       // 再次检查是否被终止
-      if (this.currentAbortController.signal.aborted) {
+      if (requestController.signal.aborted) {
         logger.info('phone', '[PhoneAPI] 生成已被终止');
         onError?.('生成已终止');
         return;
@@ -759,7 +776,14 @@ export class PhoneAPI {
         return;
       }
 
-      // ✅ 保存原始响应到调试器
+      if (extension_settings.acsusStandalonePhone.phone !== extrasTurn.phone) {
+        throw new Error('手机数据已更换，未把旧请求的回复应用到新数据');
+      }
+      // 附加内容在普通格式校验、调试快照和消息解析之前剥离，永不当作聊天正文。
+      const separated = splitCharacterExtras(responseText);
+      responseText = separated.text;
+      extrasBlocks = separated.blocks;
+      // 调试器只保留可重新应用的普通回复，避免重应用附加内容。
       const { saveDebugVersion } = await import('../messages/message-debug-ui.js');
       saveDebugVersion(contactId, responseText);
 
@@ -861,13 +885,15 @@ export class PhoneAPI {
           // 保存消息到聊天记录
           const message = {
             id: msg.id,
+            apiCallId: extrasTurn.id,
             sender: 'contact',
             time: msg.time,
             type: 'friend_request',
             content: msg.content
           };
 
-          await saveChatMessage(friendRequestContactId, message);
+          await saveChatMessage(friendRequestContactId, message, { strict: true });
+          noteDelivered(delivered, friendRequestContactId, message);
 
           // 模拟打字间隔（好友申请消息不需要太长间隔）
           const typingDelay = 800;
@@ -906,6 +932,7 @@ export class PhoneAPI {
         // 保存消息到数据库（保留解析器返回的ID和时间戳，避免误删）
         const message = {
           id: msg.id,           // 保留解析器生成的唯一ID
+          apiCallId: extrasTurn.id,
           sender: 'contact',
           time: msg.time,       // 保留解析器生成的时间戳
           type: msg.type || 'text'
@@ -981,7 +1008,8 @@ export class PhoneAPI {
         }
 
         // ✅ 保存到目标联系人的聊天记录（不是当前界面的contactId）
-        await saveChatMessage(matchedContactId, messageToSave);
+        await saveChatMessage(matchedContactId, messageToSave, { strict: true });
+        noteDelivered(delivered, matchedContactId, messageToSave);
 
         // ❌ 已删除：转账消息自动到账逻辑
         // 理由：业务逻辑已统一到 transfer-message.js 渲染器中处理
@@ -1055,10 +1083,14 @@ export class PhoneAPI {
       // 错误回调（保持向后兼容）
       onError?.(error.message || '发送失败');
     } finally {
-      // 清理终止控制器
-      this.currentAbortController = null;
-      this.isGenerating = false;
-      this.currentGeneratingContactId = null;  // ← 清空正在生成的联系人ID
+      // 先释放本次生成，再写独立番外；旧请求不得清掉后来请求的控制器。
+      if (requestController && this.currentAbortController === requestController) {
+        this.currentAbortController = null;
+        this.isGenerating = false;
+        this.currentGeneratingContactId = null;
+      }
+      try { await persistCharacterExtrasTurn(extrasTurn, extrasBlocks, delivered); }
+      catch { logger.warn('phone', '[CharacterExtras] 附加内容未确认保存，普通聊天不自动重试'); }
     }
   }
 
@@ -1435,6 +1467,10 @@ export class PhoneAPI {
    */
   async sendToAIWithToolCalling(contactId, onMessageReceived, onComplete, onError, options = {}) {
     logger.info('phone', '[PhoneAPI.sendToAIWithToolCalling] 使用工具调用模式发送到AI:', contactId);
+    let extrasTurn = null;
+    let extrasBlocks = [];
+    let requestController = null;
+    const delivered = new Map();
 
     try {
       // 获取待发送消息（复用原有逻辑）
@@ -1482,6 +1518,7 @@ export class PhoneAPI {
       const buildResult = await buildMessagesArray(contactId, allPendingMessages);
       const messages = buildResult.messages;
       const messageNumberMap = buildResult.messageNumberMap;
+      extrasTurn = await prepareCharacterExtrasTurn(messages, contactId, allPendingMessages, { toolMode: true });
 
       logger.debug('phone', '[PhoneAPI] 工具调用模式 - messages 构建完成，共', messages.length, '条，编号映射表大小:', messageNumberMap.size);
 
@@ -1501,7 +1538,8 @@ export class PhoneAPI {
       }
 
       // 创建终止控制器
-      this.currentAbortController = new AbortController();
+      requestController = new AbortController();
+      this.currentAbortController = requestController;
       this.isGenerating = true;
       this.currentGeneratingContactId = contactId;  // ← 记录正在生成的联系人ID
 
@@ -1512,7 +1550,7 @@ export class PhoneAPI {
       logger.debug('phone', '[PhoneAPI] 已触发 phone-ai-generation-start 事件（工具调用模式）');
 
       // 获取工具定义
-      const tools = getToolDefinitions();
+      const tools = getToolDefinitions({ extrasEnabled: extrasTurn.enabled });
       logger.debug('phone', '[PhoneAPI] 工具定义已加载，共', tools.length, '个工具');
 
       const currentConfig = this.getCurrentCustomConfig();
@@ -1527,7 +1565,7 @@ export class PhoneAPI {
         messages,
         tools,
         currentConfig,
-        this.currentAbortController.signal
+        requestController.signal
       );
 
       if (!result) {
@@ -1535,6 +1573,9 @@ export class PhoneAPI {
         return;
       }
 
+      if (requestController?.signal.aborted || extension_settings.acsusStandalonePhone.phone !== extrasTurn.phone) {
+        throw new Error('请求已取消或手机数据已更换，未应用本次工具回复');
+      }
       // 解析工具调用
       let toolCalls;
       if (source === 'makersuite' || source === 'vertexai') {
@@ -1554,21 +1595,42 @@ export class PhoneAPI {
         return;
       }
 
-      // 执行工具调用
-      const executionResults = await executeToolCalls(toolCalls, contactId);
+      // 附加内容工具不进入聊天工具执行器；兼容模型把包裹误放在消息参数中。
+      const responseParts = result?.candidates?.[0]?.content?.parts || result?.responseContent?.parts || [];
+      const responseContent = result?.choices?.[0]?.message?.content;
+      const freeText = typeof responseContent === 'string' ? responseContent
+        : responseParts.filter(part => typeof part.text === 'string').map(part => part.text).join('\n');
+      extrasBlocks.push(...splitCharacterExtras(freeText).blocks);
+      const chatCalls = [];
+      for (const call of toolCalls) {
+        if (call.name === 'phone_record_extras') {
+          if (extrasTurn.enabled) extrasBlocks.push(...extrasBlockFromTool(call));
+          continue;
+        }
+        if (call.name === 'phone_send_message' && typeof call.arguments?.message === 'string') {
+          const split = splitCharacterExtras(call.arguments.message);
+          extrasBlocks.push(...split.blocks);
+          if (!split.text.trim()) continue;
+          chatCalls.push({ ...call, arguments: { ...call.arguments, message: split.text } });
+        } else chatCalls.push(call);
+      }
+      // 不追加第二次请求。只将实际成功写入的普通消息用作附加内容归属。
+      const executionResults = await executeToolCalls(chatCalls, contactId, { apiCallId: extrasTurn.id });
+      for (const execution of executionResults) {
+        if (execution.result?.success) noteDelivered(delivered, execution.result.contact_id, execution.result.storedMessage);
+      }
 
       logger.info('phone', '[PhoneAPI] 工具执行完成，共', executionResults.length, '条结果');
+      if (!delivered.size) {
+        onError?.('未返回有效聊天消息，附加内容未保存');
+        return;
+      }
 
       // 触发回调（显示消息气泡）
       let index = 0;
       for (const result of executionResults) {
         if (result.result.success) {
-          const message = {
-            sender: 'contact',
-            content: result.result.message,
-            time: Math.floor(Date.now() / 1000),
-            type: result.result.type || 'text'
-          };
+          const message = result.result.storedMessage;
 
           // 如果不是第一条消息，先延迟（模拟打字时间）
           if (index > 0) {
@@ -1577,7 +1639,10 @@ export class PhoneAPI {
             await this.sleep(delay);
           }
 
-          onMessageReceived?.(message);
+          if (result.result.contact_id === contactId) await onMessageReceived?.(message);
+          else document.dispatchEvent(new CustomEvent('phone-message-received', {
+            detail: { contactId: result.result.contact_id, message },
+          }));
           index++;
         }
       }
@@ -1608,9 +1673,13 @@ export class PhoneAPI {
       // 错误回调（保持向后兼容）
       onError?.(error.message || '发送失败');
     } finally {
-      this.currentAbortController = null;
-      this.isGenerating = false;
-      this.currentGeneratingContactId = null;  // ← 清空正在生成的联系人ID
+      if (requestController && this.currentAbortController === requestController) {
+        this.currentAbortController = null;
+        this.isGenerating = false;
+        this.currentGeneratingContactId = null;
+      }
+      try { await persistCharacterExtrasTurn(extrasTurn, extrasBlocks, delivered); }
+      catch { logger.warn('phone', '[CharacterExtras] 附加内容未确认保存，普通聊天不自动重试'); }
     }
   }
 

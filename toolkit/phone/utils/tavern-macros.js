@@ -19,9 +19,8 @@ import logger from '../../../logger.js';
 import { macros } from '/scripts/macros/macro-system.js';
 
 import { getUserDisplayName } from './contact-display-helper.js';
-
-// 延迟导入，避免循环依赖
-let loadContacts, buildChatHistoryInfo, buildHistoryChatInfo, loadChatHistory, getChatSendSettings;
+import { findEmojiById } from '../emojis/emoji-manager-data.js';
+import { selectHistoryContext, formatCompactHistory, formatHistoryMessageContent } from './history-context.js';
 
 /** @type {{ contactListChanged: ((event: Event) => Promise<void>)|null }} 模块级监听器引用 */
 let savedHandlers = {
@@ -35,7 +34,7 @@ let macrosRegistered = false;
  * 注册所有手机相关的酒馆宏
  *
  * @description
- * 初始化动态依赖后，注册新引擎英文宏，
+ * 注册新引擎英文宏，
  * 并保留联系人变化监听器用于日志追踪。
  *
  * @async
@@ -46,17 +45,6 @@ export async function registerPhoneMacros() {
     logger.debug('phone','[TavernMacros] 宏已注册，跳过');
     return;
   }
-
-  // 动态导入依赖
-  const contactModule = await import('../contacts/contact-list-data.js');
-  const contextModule = await import('../ai-integration/ai-context-builder.js');
-  const chatDataModule = await import('../messages/message-chat-data.js');
-
-  loadContacts = contactModule.loadContacts;
-  buildChatHistoryInfo = contextModule.buildChatHistoryInfo;
-  buildHistoryChatInfo = contextModule.buildHistoryChatInfo;
-  loadChatHistory = chatDataModule.loadChatHistory;
-  getChatSendSettings = chatDataModule.getChatSendSettings;
 
   registerNewEngineMacros();
   setupContactChangeListener();
@@ -255,7 +243,7 @@ function getMessagesByCharName(type, charName) {
  * @description
  * ⚠️ 同步实现：宏系统不支持Promise
  * 直接从持久化存储读取数据，使用正确的字段名和格式化逻辑
- * 复用 formatTimeForAISync 和消息类型处理逻辑
+ * 与 API 共用历史窗口、日记替换和紧凑格式化逻辑
  * 
  * @param {'recent'|'history'} type - 消息类型
  * @param {string} contactId - 联系人ID
@@ -268,29 +256,15 @@ function getContactMessages(type, contactId, contact) {
     const STORAGE_KEY = 'acsusStandalonePhone';
     const chatKey = `chat_${contactId}`;
     const allMessages = extension_settings[STORAGE_KEY]?.phone?.chats?.[chatKey] || [];
-    const sendSettings = extension_settings[STORAGE_KEY]?.phone?.chatSendSettings?.[contactId] || {
-      recentCount: 20,
-      historyCount: 99
-    };
+    const sendSettings = getChatSendSettings(contactId);
 
     if (allMessages.length === 0) {
       return ''; // 没有消息
     }
 
-    // 过滤出非排除的消息
-    const validMessages = allMessages.filter(msg => !msg.excluded);
-
-    // 根据类型选择消息范围
-    let selectedMessages;
-    if (type === 'recent') {
-      // 最新消息：最后recentCount条
-      selectedMessages = validMessages.slice(Math.max(0, validMessages.length - sendSettings.recentCount));
-    } else {
-      // 历史消息：除最新recentCount条外的historyCount条
-      const historyEnd = Math.max(0, validMessages.length - sendSettings.recentCount);
-      const historyStart = Math.max(0, historyEnd - sendSettings.historyCount);
-      selectedMessages = validMessages.slice(historyStart, historyEnd);
-    }
+    // 与手机 API 共用原始窗口和有效日记替换规则；recent 永远保留原文。
+    const selection = selectHistoryContext(allMessages, sendSettings, contactId);
+    const selectedMessages = type === 'recent' ? selection.recentMessages : selection.historyRenderList;
 
     if (selectedMessages.length === 0) {
       return '';
@@ -319,100 +293,12 @@ function getContactMessages(type, contactId, contact) {
  * @returns {string} 格式化的消息文本
  */
 function formatMessagesForMacro(messages, contact) {
-  // 获取真实用户名（从 SillyTavern 的 {{user}} 宏，和其他函数保持一致）
   const userName = getUserDisplayName();
-  
-  const lines = [];
-
-  for (let index = 0; index < messages.length; index++) {
-    const msg = messages[index];
-    const senderName = msg.sender === 'user' ? userName : contact.name;
-    const prevTime = index > 0 ? messages[index - 1].time : null;
-    const isFirst = index === 0;
-
-    // 格式化时间（使用 msg.time 而不是 msg.timestamp）
-    const timeStr = formatTimeForAISync(msg.time, prevTime, isFirst);
-
-    // 根据消息类型处理内容
-    let messageContent = formatMessageContent(msg);
-
-    // 组装消息行
-    lines.push(`${timeStr}${senderName}: ${messageContent}`);
-  }
-
-  return lines.join('\n');
-}
-
-/**
- * 格式化消息内容（根据类型）
- * 
- * @param {Object} msg - 消息对象
- * @returns {string} 格式化后的内容
- */
-function formatMessageContent(msg) {
-  // 同步版本：无法查询表情包名称，直接使用冗余存储的名字
-  if (msg.type === 'poke') {
-    return '[戳一戳]';
-  } else if (msg.type === 'emoji') {
-    return msg.emojiName ? `[表情]${msg.emojiName}` : `[表情包]`;
-  } else if (msg.type === 'image-real' || (msg.type === 'image' && msg.imageUrl)) {
-    return msg.description ? `[图片]${msg.description}` : '[图片]';
-  } else if (msg.type === 'image-fake' || (msg.type === 'image' && !msg.imageUrl)) {
-    return `[图片]${msg.description || '无描述'}`;
-  } else if (msg.type === 'quote') {
-    const quotedText = msg.quotedMessage?.content || '(已删除)';
-    return `[引用]${quotedText}[回复]${msg.replyContent}`;
-  } else if (msg.type === 'transfer') {
-    return msg.message ? `[转账]${msg.amount}元 ${msg.message}` : `[转账]${msg.amount}元`;
-  } else if (msg.type === 'recalled') {
-    // 撤回消息只显示提示，不显示原内容
-    return '撤回了一条消息';
-  } else if (msg.type === 'forwarded') {
-    return '[转发聊天记录]';
-  } else if (msg.type === 'plan') {
-    return `[约定计划]${msg.content}`;
-  } else {
-    // 默认：文字消息
-    return msg.content || '';
-  }
-}
-
-/**
- * 格式化时间为AI可读格式（同步版本）
- * 
- * @param {number} timestamp - Unix时间戳（秒）
- * @param {number|null} prevTimestamp - 上一条消息的时间戳
- * @param {boolean} isFirst - 是否是第一条消息
- * @returns {string} 格式化的时间字符串
- */
-function formatTimeForAISync(timestamp, prevTimestamp = null, isFirst = false) {
-  const date = new Date(timestamp * 1000);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hour = String(date.getHours()).padStart(2, '0');
-  const minute = String(date.getMinutes()).padStart(2, '0');
-
-  // 第一条消息：显示完整日期
-  if (isFirst) {
-    return `[${year}-${month}-${day}]\n`;
-  }
-
-  // 如果有上一条消息，检查是否跨天
-  if (prevTimestamp !== null) {
-    const prevDate = new Date(prevTimestamp * 1000);
-    const isSameDay = date.getFullYear() === prevDate.getFullYear() &&
-      date.getMonth() === prevDate.getMonth() &&
-      date.getDate() === prevDate.getDate();
-
-    // 跨天了：显示新的日期分组
-    if (!isSameDay) {
-      return `[${year}-${month}-${day}]\n`;
-    }
-  }
-
-  // 同一天内：只显示时间
-  return `[${hour}:${minute}] `;
+  return formatCompactHistory(messages, {
+    userName,
+    contactName: contact.name,
+    formatContent: msg => formatHistoryMessageContent(msg, { userName, findEmojiById, sources: messages }),
+  });
 }
 
 /**
