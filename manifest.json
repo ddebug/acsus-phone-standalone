@@ -6,7 +6,7 @@
   "js": "index.js",
   "css": "style.css",
   "author": "白沉 & 溯 / AcSus · standalone adaptation",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "homePage": "https://github.com/ddebug/st-phone",
   "auto_update": false
 }

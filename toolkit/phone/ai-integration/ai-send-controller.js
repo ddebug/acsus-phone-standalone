@@ -46,6 +46,8 @@ export class PhoneAPI {
    */
   constructor() {
     this.currentAbortController = null;
+    this.proactiveAbortController = null;
+    this.foregroundPending = 0;
     this.isGenerating = false;
     this.currentGeneratingContactId = null;  // 记录正在生成的联系人ID
     this.renderedMessageIds = new Map();     // 记录每个联系人已渲染的消息ID（contactId -> Set）
@@ -63,6 +65,7 @@ export class PhoneAPI {
    * 中止当前生成
    */
   abort() {
+    this.abortProactive();
     if (this.currentAbortController) {
       this.currentAbortController.abort();
       this.currentAbortController = null;
@@ -253,6 +256,88 @@ export class PhoneAPI {
    * - 否则自动从暂存队列或聊天历史中获取
    */
   async sendToAI(contactId, onMessageReceived, onComplete, onError, options = {}) {
+    // 用户操作始终优先：即使仍在组装前台上下文，也不允许后台抢同一连接。
+    this.abortProactive();
+    this.foregroundPending++;
+    try {
+      return await this._sendToAI(contactId, onMessageReceived, onComplete, onError, options);
+    } finally {
+      this.foregroundPending = Math.max(0, this.foregroundPending - 1);
+    }
+  }
+
+  abortProactive() {
+    this.proactiveAbortController?.abort();
+    this.proactiveAbortController = null;
+  }
+
+  /**
+   * 一次隐藏主动检查。只请求文字，不进待发队列、调试快照或聊天记录；
+   * 是否保存/限流/通知由调度器在重新核对用户活动后处理。
+   */
+  async requestProactiveMessage(contactId, hiddenPrompt, { signal } = {}) {
+    const abortError = () => new DOMException('主动检查已取消', 'AbortError');
+    if (signal?.aborted || this.foregroundPending > 0 || this.isGenerating || this.proactiveAbortController) throw abortError();
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    signal?.addEventListener('abort', cancel, { once: true });
+    this.proactiveAbortController = controller;
+    const check = () => {
+      if (controller.signal.aborted || signal?.aborted || this.foregroundPending > 0 || this.isGenerating) throw abortError();
+    };
+    try {
+      const contact = (await loadContacts()).find(item => item.id === contactId);
+      if (!contact) throw new Error('主动消息联系人不存在');
+      const context = await buildMessagesArray(contactId, {}, { proactive: true, characterName: contact.name });
+      check();
+      // 无新图片/用户操作，不注入待发送内容；旧图保留文字描述，不额外下载图像。
+      const messages = context.messages.map(message => ({
+        role: message.role,
+        content: typeof message.content === 'string' ? message.content :
+          (Array.isArray(message.content) ? message.content.filter(part => part.type === 'text').map(part => part.text || '').join('\n') : ''),
+      })).filter(message => message.content.trim());
+      messages.push({ role: 'system', content: `本次只检查角色${contact.name}是否主动问候，用户没有发出新消息。以下隐藏系统提醒不是用户发言，不得复述它或伪造用户回应。你可选择完全不发，此时只返回[不发]。如果选择发送，只返回一条普通文字消息的正文（可有换行），不要角色/消息标签、思考过程、工具调用、转账、好友申请、个签或其他操作。不要向其他联系人发消息。` });
+      messages.push({ role: 'user', content: hiddenPrompt });
+      check();
+      const settings = this.getSettings();
+      let result;
+      if (settings.apiConfig?.source === 'custom') {
+        const current = this.getCurrentCustomConfig();
+        if (!current) throw new Error('请先配置手机 API');
+        const config = this.buildSharedApiConfig(current, false);
+        config.maxTokens = Math.min(Number(config.maxTokens) > 0 ? Number(config.maxTokens) : 1024, 1024);
+        result = await generate(config, messages, { signal: controller.signal, module: 'phone' });
+      } else {
+        result = await generateWithDefault(messages, { signal: controller.signal, module: 'phone' });
+      }
+      check();
+      const finish = result.raw?.choices?.[0]?.finish_reason || result.raw?.stop_reason;
+      if (finish === 'length' || finish === 'max_tokens') throw new Error('主动消息输出被截断，未发送');
+      let text = String(result.text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      // 兼容误用正常标签的单角色纯文字回复，不走具有副作用的常规操作解析器。
+      if (text.startsWith('[角色-')) {
+        const blocks = [...text.matchAll(/\[角色-([^\]]+)\]/g)];
+        if (blocks.length !== 1 || blocks[0][1].replace(/\s/g, '') !== contact.name.replace(/\s/g, '')) {
+          throw new Error('主动回复包含其他角色，未发送');
+        }
+        const opening = text.indexOf('[消息]');
+        if (opening < 0) throw new Error('主动回复格式无效');
+        text = text.slice(opening + '[消息]'.length).replace(/\[\/消息\][\s\S]*$/, '').replace(/\[\/角色-[^\]]+\]\s*$/, '').trim();
+      }
+      if (text === '[不发]') return text;
+      if (!text) throw new Error('主动回复为空，未发送');
+      if (text.length > 8000 || text.includes(hiddenPrompt) ||
+          /\[(?:系统[:：]|操作-|角色-|消息\]|改个签\]|好友申请\]|转账\]|红包\]|约定计划|开会员\]|送会员\])/.test(text) || /<think>/i.test(text)) {
+        throw new Error('主动回复不符合普通文字要求，未发送');
+      }
+      return text;
+    } finally {
+      signal?.removeEventListener('abort', cancel);
+      if (this.proactiveAbortController === controller) this.proactiveAbortController = null;
+    }
+  }
+
+  async _sendToAI(contactId, onMessageReceived, onComplete, onError, options = {}) {
     logger.info('phone', '[PhoneAPI.sendToAI] 开始发送到AI:', contactId);
 
     // ✅ 检查是否启用工具调用

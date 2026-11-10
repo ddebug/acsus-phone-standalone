@@ -3,6 +3,7 @@ import logger from '../../logger.js';
 import { renderPhoneFrame, closePhoneUI as closeUI } from './phone-main-ui.js';
 import { eventSource, event_types } from '/script.js';
 import { initPhoneSystem, getPhoneSystem } from './phone-system.js';
+import { startProactiveScheduler, stopProactiveScheduler } from './ai-integration/proactive-scheduler.js';
 
 // Adapted from Acsus-Paws-Puffs (AcSus / 白沉 & 溯); see the retained LICENSE.
 const EXT_ID = 'acsusStandalonePhone';
@@ -61,6 +62,7 @@ export function initPhone() {
       const system = await initPhoneSystem();
       if (system.enabled) await registerMacros();
       registerMenuEntry();
+      if (system.enabled) startProactiveScheduler(system);
       return system;
     } catch (error) {
       // Cleanup is part of the queued transition, not an out-of-band catch.
@@ -144,6 +146,7 @@ export function enablePhone() {
       setEnabledSetting(true);
       await saveSettingsDebounced();
       showMenuEntry();
+      startProactiveScheduler(system);
       return system;
     } catch (error) {
       if (version === intentVersion) {
@@ -163,6 +166,7 @@ export function enablePhone() {
 /** Abort immediately; await macro cleanup even if enable/init is still pending. */
 export function disablePhone() {
   ++intentVersion;
+  stopProactiveScheduler();
   const system = getPhoneSystem();
   if (system) {
     system.enabled = false;

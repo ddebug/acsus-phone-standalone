@@ -408,7 +408,7 @@ function checkIfParamsChanged(pageElement, newParams, pageName) {
   }
 
   // 收藏列表页每次显示时都刷新（数据可能已变化）
-  if (pageName === 'favorites-list' || pageName === 'chat-diary') {
+  if (pageName === 'favorites-list' || pageName === 'chat-diary' || pageName === 'proactive-settings') {
     logger.debug('phone','[PhoneUI.checkIfParamsChanged] 收藏列表页，需要刷新');
     return true;
   }
@@ -1219,6 +1219,15 @@ async function refreshPageContent(pageName, params = {}) {
       }
       break;
 
+    case 'proactive-settings': {
+      const page = document.querySelector('#page-proactive-settings');
+      if (page) {
+        const { renderProactiveSettingsPage } = await import('./settings/proactive-settings-ui.js');
+        page.replaceChildren(await renderProactiveSettingsPage());
+      }
+      break;
+    }
+
     case 'chat-diary': {
       const diaryPage = document.querySelector('#page-chat-diary');
       if (diaryPage && params.contactId) {
@@ -1723,6 +1732,15 @@ async function createPage(pageName, params = {}) {
         groupManagePage.classList.add('phone-page-scrollable');
       }
       return groupManagePage;
+
+    case 'proactive-settings': {
+      const { renderProactiveSettingsPage } = await import('./settings/proactive-settings-ui.js');
+      const page = document.createElement('div');
+      page.id = 'page-proactive-settings';
+      page.className = 'phone-page phone-page-fixed';
+      page.appendChild(await renderProactiveSettingsPage());
+      return page;
+    }
 
     case 'user-settings':
       // 动态导入用户设置页渲染函数

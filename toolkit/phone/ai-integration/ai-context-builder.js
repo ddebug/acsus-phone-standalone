@@ -344,7 +344,7 @@ async function extractTriggeredContactIds(allPendingMessages) {
  * - 用于AI引用消息时精确查找原消息
  * - 编号每次重新构建，不累积
  */
-export async function buildMessagesArray(contactId, allPendingMessages) {
+export async function buildMessagesArray(contactId, allPendingMessages, options = {}) {
   logger.info('phone','[ContextBuilder.buildMessagesArray] 开始构建messages数组 - 主联系人:', contactId);
 
   // ✅ 读取 API 配置源（决定是否使用结构化消息）
@@ -352,7 +352,8 @@ export async function buildMessagesArray(contactId, allPendingMessages) {
   logger.info('phone','[ContextBuilder.buildMessagesArray] API配置源:', apiSource, apiSource === 'custom' ? '（支持多模态数组）' : '（仅支持纯文本）');
 
   // ✅ 提取被触发的联系人ID（有消息的才算触发）
-  const triggeredContactIds = await extractTriggeredContactIds(allPendingMessages);
+  // 主动检查只读取目标角色上下文，不伪造用户消息，也不触发好友重申请等操作。
+  const triggeredContactIds = options.proactive === true ? [contactId] : await extractTriggeredContactIds(allPendingMessages);
   logger.info('phone','[ContextBuilder.buildMessagesArray] 共触发', triggeredContactIds.length, '个联系人:', triggeredContactIds);
 
   // ✅ 创建消息编号映射表（编号 → 消息ID）
@@ -363,7 +364,9 @@ export async function buildMessagesArray(contactId, allPendingMessages) {
   let collectedImages = [];
 
   // 获取预设数据
-  const presets = getPresetData();
+  const presets = options.proactive === true
+    ? (extension_settings.acsusStandalonePhone.phone?.promptPreset || getDefaultPresets())
+    : getPresetData();
 
   // 构建messages数组
   const messages = [];
@@ -372,6 +375,7 @@ export async function buildMessagesArray(contactId, allPendingMessages) {
   const sortedItems = presets.items.filter(item => item.enabled).sort((a, b) => a.order - b.order);
 
   for (const item of sortedItems) {
+    if (options.proactive === true && item.id === 'user-pending-ops') continue;
     let content = item.content;
 
     // ✅ 通过 item.id 判断，而不是检测占位符
@@ -504,7 +508,10 @@ export async function buildMessagesArray(contactId, allPendingMessages) {
       if (typeof msg.content === 'string') {
         const originalContent = msg.content;
         // substituteParams 会自动替换所有宏：酒馆内置宏 + 手机注册的宏
-        msg.content = substituteParams(msg.content);
+        const forTarget = options.proactive === true && options.characterName
+          ? msg.content.replace(/\{\{char\}\}/gi, () => options.characterName)
+          : msg.content;
+        msg.content = substituteParams(forTarget);
         if (originalContent !== msg.content) {
           logger.debug('phone','[ContextBuilder.buildMessagesArray] ✅ 宏已替换，样例:', originalContent.substring(0, 50), '→', msg.content.substring(0, 50));
         }

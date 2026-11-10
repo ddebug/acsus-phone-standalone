@@ -87,6 +87,14 @@ export async function renderUserSettings() {
                         <span class="phone-settings-item-text">个性装扮与特权外显</span>
                         <i class="fa-solid fa-chevron-right phone-settings-item-arrow"></i>
                     </div>
+                    <button type="button" class="phone-settings-item" id="standalone-phone-proactive-link" style="width:100%;background:transparent;border:0;text-align:left;font:inherit;color:var(--phone-text-primary);">
+                        <i class="fa-solid fa-comment-dots"></i>
+                        <div class="phone-settings-item-content">
+                            <span class="phone-settings-item-text">角色主动消息</span>
+                            <span class="phone-settings-item-extra">沉默 / 定时</span>
+                        </div>
+                        <i class="fa-solid fa-chevron-right phone-settings-item-arrow"></i>
+                    </button>
                     <div class="phone-settings-item" id="phone-storage-space-link">
                         <i class="fa-solid fa-database"></i>
                         <span class="phone-settings-item-text">存储空间</span>
@@ -184,6 +192,14 @@ function bindBackButton(pageElement) {
  * @param {HTMLElement} pageElement - 页面元素
  */
 function bindSettingItems(pageElement) {
+  pageElement.querySelector('#standalone-phone-proactive-link')?.addEventListener('click', () => {
+    void (async () => {
+      const overlay = document.querySelector('.phone-overlay');
+      if (!overlay) return;
+      const { showPage } = await import('../phone-main-ui.js');
+      await showPage(overlay, 'proactive-settings');
+    })().catch(() => logger.warn('phone', '[UserSettings] 主动消息设置打开失败，请重新打开手机'));
+  });
   // 图片识别模式
   const imageModeLink = pageElement.querySelector('#phone-image-mode-setting-link');
   if (imageModeLink) {

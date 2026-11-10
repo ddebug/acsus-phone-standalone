@@ -141,7 +141,7 @@ function getMessagePreview(message) {
  * - file: filename + size
  * - quote: quotedMessage + replyContent
  */
-export async function saveChatMessage(contactId, message) {
+export async function saveChatMessage(contactId, message, { strict = false } = {}) {
   ensurePhoneData();
 
   const chatKey = getChatKey(contactId);
@@ -153,6 +153,12 @@ export async function saveChatMessage(contactId, message) {
 
   // 追加消息
   extension_settings.acsusStandalonePhone.phone.chats[chatKey].push(message);
+  if (message.sender === 'user') {
+    // 立即让同角色的在途主动检查让路；事件中不包含私聊正文。
+    globalThis.dispatchEvent(new CustomEvent('standalone-phone-user-message-saved', {
+      detail: { contactId, messageId: message.id || null, time: message.time },
+    }));
+  }
 
   // 立即落盘：只在内存里堆着，重启或崩溃时会丢消息。
   saveSettingsDebounced();
@@ -160,6 +166,7 @@ export async function saveChatMessage(contactId, message) {
     await flushPhoneStorage();
   } catch (error) {
     logger.error('phone', '[ChatData] 消息保存失败，已在存储状态中标记:', error);
+    if (strict) throw error;
   }
 
   logger.debug('phone', '[ChatData] 保存消息:', contactId, getMessagePreview(message));
