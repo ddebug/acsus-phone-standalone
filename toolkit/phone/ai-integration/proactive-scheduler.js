@@ -25,6 +25,17 @@ const UNSAFE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 let runtime = null;
 let localBusy = false;
 const activeSaves = new Set(); // runtime-only: atomic snapshots may contain sent before the ack arrives.
+let manualWriters = 0;
+const idleWaiters = new Set();
+
+/** A human recovery preempts background work and waits for its writes to settle. */
+export async function beginManualReplyWrite() {
+  manualWriters++;
+  if (runtime) abortFlight(runtime, 'manual-recovery');
+  if (localBusy) await new Promise(resolve => idleWaiters.add(resolve));
+  let held = true;
+  return () => { if (held) { held = false; manualWriters--; } };
+}
 
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
@@ -116,6 +127,47 @@ function getState(phone, day) {
   return state;
 }
 
+/** Prepare an immutable guard for an explicitly recovered proactive reply. No I/O. */
+export function buildManualProactiveState(phone, contactId, message) {
+  if (typeof contactId !== 'string' || !contactId || UNSAFE_KEYS.has(contactId)) throw new Error('联系人标识无效。');
+  const user = latestUser(phone, contactId);
+  const now = new Date();
+  const isToday = dayOf(new Date(message.time * 1000)) === dayOf(now);
+  const answered = user.time > message.time * 1000;
+  if (answered && !isToday) return null; // No current-day quota or unanswered-message guard to change.
+  const previous = phone.proactiveState;
+  if (previous !== undefined && (!record(previous) || !record(previous.contacts)
+    || typeof previous.day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(previous.day))) {
+    throw new Error('主动任务状态异常；可取消主动回复标记，只补录普通文字。');
+  }
+  const contacts = {};
+  for (const [id, entry] of Object.entries(previous?.contacts || {})) {
+    if (UNSAFE_KEYS.has(id) || !record(entry)) throw new Error('主动任务状态异常，未覆盖原状态。');
+    contacts[id] = { ...entry };
+  }
+  const holder = { proactiveState: previous ? { ...previous, contacts } : undefined };
+  const state = getState(holder, dayOf(now));
+  if (!state) throw new Error('主动任务计数或系统日期异常，未覆盖原状态。');
+  if (dayOf(new Date(message.time * 1000)) === state.day) {
+    if (state.sent >= Number.MAX_SAFE_INTEGER) throw new Error('主动消息计数异常。');
+    state.sent++;
+  }
+  if (answered) return state;
+  state.contacts[contactId] = {
+    ...(state.contacts[contactId] || {}),
+    awaitingUserKey: user.key,
+    awaitingUser: { index: user.index, time: user.time, identity: user.identity },
+    lastOutcome: 'sent', lastError: '', messageId: message.id,
+    proactiveRequestId: message.proactiveRequestId,
+  };
+  return state;
+}
+
+export function trackManualProactiveSave(requestId) {
+  activeSaves.add(requestId);
+  return () => activeSaves.delete(requestId);
+}
+
 async function persist() {
   // Observe both promises immediately; legacy saver callers may swallow errors.
   const pending = saveSettingsDebounced();
@@ -202,7 +254,7 @@ function invalidReason(run, phone, state, settingsKey, contactId, user, source, 
   if (dayOf(now) !== state.day) return 'day-changed';
   if (phoneData() !== phone || phone.proactiveState !== state) return 'data-replaced';
   if (run.system.api !== api) return 'api-replaced';
-  if (normalBusy(api)) return 'foreground-busy';
+  if (manualWriters || normalBusy(api)) return 'foreground-busy';
   if (!settings.enabled) return 'disabled';
   if (fingerprint(settings) !== settingsKey || !settings.contactIds.includes(contactId)) return 'settings-changed';
   if (state.sent >= settings.dailyLimit) return 'daily-limit';
@@ -390,7 +442,7 @@ async function tickLocked(run) {
   await persist();
   const requestCap = Math.max(20, settings.dailyLimit * 4);
   for (const contactId of settings.contactIds) {
-    if (!enabled(run) || run.faulted || !storageReady() || normalBusy(run.system.api)
+    if (manualWriters || !enabled(run) || run.faulted || !storageReady() || normalBusy(run.system.api)
       || quiet(new Date()) || dayOf(new Date()) !== state.day
       || state.sent >= settings.dailyLimit || state.attempts >= requestCap
       || fingerprint(getProactiveSettings()) !== fingerprint(settings)) break;
@@ -413,7 +465,7 @@ async function tickLocked(run) {
 }
 
 async function tick(run) {
-  if (localBusy || !enabled(run) || run.faulted) return;
+  if (manualWriters || localBusy || !enabled(run) || run.faulted) return;
   localBusy = true;
   try {
     if (globalThis.navigator?.locks?.request) {
@@ -427,7 +479,11 @@ async function tick(run) {
     // Only sanitized metadata, no raw network/storage errors. A storage fault is
     // latched until stop/start (the facade itself may require a page reload).
     run.faulted = true;
-  } finally { localBusy = false; }
+  } finally {
+    localBusy = false;
+    for (const resolve of idleWaiters) resolve();
+    idleWaiters.clear();
+  }
 }
 
 function clearIntervalFor(run) {

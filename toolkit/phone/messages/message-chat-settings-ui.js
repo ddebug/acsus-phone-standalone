@@ -174,6 +174,15 @@ function createSettingsList(contact) {
             </span>
         </button>
 
+        <!-- 手动补录最终角色回复：不调用 AI -->
+        <button type="button" class="chat-settings-item" data-action="manual-reply"
+                aria-label="补录角色回复" style="width:calc(100% - 2em);border:0;font:inherit;text-align:left;color:var(--phone-text-primary);">
+            <span class="chat-settings-item-label">补录角色回复</span>
+            <span class="chat-settings-item-right" aria-hidden="true">
+                <i class="fa-solid fa-chevron-right"></i>
+            </span>
+        </button>
+
         <!-- 聊天记录发送设置 -->
         <div class="chat-settings-section-title">聊天记录发送设置</div>
 
@@ -316,6 +325,11 @@ function bindSettingsEvents(list, contact) {
     handleCharacterExtras(contact);
   });
 
+  // 手动补录角色回复
+  list.querySelector('[data-action="manual-reply"]').addEventListener('click', () => {
+    handleManualReply(contact);
+  });
+
   // 数字输入框
   list.querySelectorAll('.chat-settings-number-input').forEach((el) => {
     const input = /** @type {HTMLInputElement} */ (el);
@@ -452,6 +466,17 @@ async function handleCharacterExtras(contact) {
   const overlay = document.querySelector('.phone-overlay');
   if (overlay) {
     await showPage(/** @type {HTMLElement} */(overlay), 'character-extras', {
+      contactId: contact.id
+    });
+  }
+}
+
+/** 打开当前联系人的手动补录页；预览和保存均不调用模型。 */
+async function handleManualReply(contact) {
+  const { showPage } = await import('../phone-main-ui.js');
+  const overlay = document.querySelector('.phone-overlay');
+  if (overlay) {
+    await showPage(/** @type {HTMLElement} */(overlay), 'manual-reply', {
       contactId: contact.id
     });
   }

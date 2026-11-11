@@ -408,7 +408,7 @@ function checkIfParamsChanged(pageElement, newParams, pageName) {
   }
 
   // 收藏列表页每次显示时都刷新（数据可能已变化）
-  if (pageName === 'favorites-list' || pageName === 'chat-diary' || pageName === 'proactive-settings' || pageName === 'character-extras') {
+  if (pageName === 'favorites-list' || pageName === 'chat-diary' || pageName === 'proactive-settings' || pageName === 'character-extras' || pageName === 'manual-reply') {
     logger.debug('phone','[PhoneUI.checkIfParamsChanged] 收藏列表页，需要刷新');
     return true;
   }
@@ -1219,6 +1219,16 @@ async function refreshPageContent(pageName, params = {}) {
       }
       break;
 
+    case 'manual-reply': {
+      const page = document.querySelector('#page-manual-reply');
+      if (page && params.contactId) {
+        const { renderManualReplyPage } = await import('./messages/manual-reply-ui.js');
+        page.replaceChildren(await renderManualReplyPage(params));
+        page.dataset.contactId = params.contactId;
+      }
+      break;
+    }
+
     case 'character-extras': {
       const page = document.querySelector('#page-character-extras');
       if (page && params.contactId) {
@@ -1742,6 +1752,17 @@ async function createPage(pageName, params = {}) {
         groupManagePage.classList.add('phone-page-scrollable');
       }
       return groupManagePage;
+
+    case 'manual-reply': {
+      if (!params.contactId) return null;
+      const { renderManualReplyPage } = await import('./messages/manual-reply-ui.js');
+      const page = document.createElement('div');
+      page.id = 'page-manual-reply';
+      page.className = 'phone-page phone-page-fixed';
+      page.dataset.contactId = params.contactId;
+      page.appendChild(await renderManualReplyPage(params));
+      return page;
+    }
 
     case 'character-extras': {
       if (!params.contactId) return null;
