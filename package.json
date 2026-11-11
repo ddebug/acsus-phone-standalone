@@ -1,6 +1,6 @@
 {
   "name": "acsus-phone-standalone",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "private": true,
   "type": "module",
   "description": "Source-only standalone extraction of the authorized Acsus phone module for SillyTavern/TauriTavern",

@@ -153,7 +153,7 @@ function createInputArea() {
         <div class="chat-input-row-top">
             <textarea class="chat-input-field" placeholder="输入消息..." rows="1"></textarea>
             <button class="chat-send-text-btn" style="display: none;">发送</button>
-            <button class="chat-send-btn"><i class="fa-solid fa-paper-plane"></i></button>
+            <button class="chat-send-btn" title="调用AI；空内容时让角色主动继续" aria-label="调用AI；空内容时让角色主动继续"><i class="fa-solid fa-paper-plane"></i></button>
         </div>
 
         <!-- 第二行：6个功能按钮 -->
@@ -570,8 +570,7 @@ async function bindInputEvents(page, contactId, contact) {
     phoneSystem.api.isGenerating &&
     phoneSystem.api.currentGeneratingContactId === contactId) {
     logger.debug('phone','[ChatView] 检测到正在生成，初始化按钮为终止键');
-    sendBtn.innerHTML = '<i class="fa-solid fa-circle-stop"></i>';
-    sendBtn.classList.add('generating');
+    handleRerollStart(page);
   }
 
   // 输入框内容变化事件
@@ -1399,136 +1398,180 @@ async function handleOpenGiftMembership(contactId) {
   }
 }
 
+// 只锁定导入/历史准备阶段；取得请求 Promise 后释放，生成中的再次点击仍可停止。
+const preparingAIButtons = new WeakSet();
+
 /**
- * 处理纸飞机按钮：调用AI + 显示AI气泡 + 终止键
+ * 处理纸飞机按钮：普通回复 / 空内容主动继续 / 终止生成
  * @private
  */
 async function handleSendToAI(page, contactId, contact, sendBtn) {
-  logger.info('phone','[ChatView] 点击纸飞机，开始调用AI');
-
-  // 类型断言
   const sendButton = /** @type {HTMLButtonElement} */ (sendBtn);
+  if (preparingAIButtons.has(sendButton)) return;
+  preparingAIButtons.add(sendButton);
+  let ownsPreparation = true;
+  const releasePreparation = () => {
+    if (!ownsPreparation) return;
+    preparingAIButtons.delete(sendButton);
+    ownsPreparation = false;
+  };
 
-  // ✅ 清空上一轮的调试数据 + 保存当前快照（包含多联系人消息 + 个签操作）
-  const { clearDebugState, saveSnapshot } = await import('./message-debug-ui.js');
-  const { loadChatHistory } = await import('./message-chat-data.js');
-  const { getAllPendingOperations } = await import('../ai-integration/pending-operations.js');
+  let api;
+  try {
+    const { getPhoneSystem } = await import('../phone-system.js');
+    api = getPhoneSystem()?.api;
+    if (!api) {
+      logger.error('phone','[ChatView] 手机系统未初始化');
+      return;
+    }
 
-  clearDebugState(contactId);
-  const chatHistory = await loadChatHistory(contactId);
-  const allPendingOps = getAllPendingOperations();
+    // 停止必须先于调试清理、历史读取和快照保存。
+    if (api.isGenerating) {
+      logger.info('phone','[ChatView] 终止生成');
+      api.abort();
+      handleRerollEnd(page);
+      document.dispatchEvent(new CustomEvent('phone-debug-reroll-end', {
+        detail: { contactId }
+      }));
+      return;
+    }
+    // 普通请求可能还在组装上下文，尚未设置 isGenerating。
+    if (api.foregroundPending > 0) {
+      window.toastr?.info('上一次请求仍在准备或收尾，请稍候。');
+      return;
+    }
 
-  // 保存完整快照（消息数量 + 所有待发送消息 + 个签操作）
-  saveSnapshot(contactId, {
-    messageCount: chatHistory.length,
-    allPendingMessages: allPendingOps.messages,
-    signatureActions: allPendingOps.signatureActions || []
-  });
+    const [{ loadChatHistory }, { getPendingMessages, getAllPendingOperations }] = await Promise.all([
+      import('./message-chat-data.js'),
+      import('../ai-integration/pending-operations.js')
+    ]);
+    let chatHistory = await loadChatHistory(contactId);
+    const canContinueProactively = () => {
+      const input = /** @type {HTMLTextAreaElement|null} */ (page.querySelector('.chat-input-field'));
+      const lastUserIndex = chatHistory.findLastIndex(message => message.sender === 'user');
+      const hasUnansweredUser = lastUserIndex >= 0 &&
+        !chatHistory.slice(lastUserIndex + 1).some(message => message.sender === 'contact');
+      // “发送”刚清空输入框时，已暂存的真实用户消息仍必须走普通回复。
+      return input?.value.trim() === '' && getPendingMessages(contactId).length === 0 && !hasUnansweredUser;
+    };
 
-  // 获取 PhoneAPI 实例（完全照搬日记）
-  const { getPhoneSystem } = await import('../phone-system.js');
-  const phoneSystem = getPhoneSystem();
-
-  if (!phoneSystem || !phoneSystem.api) {
-    logger.error('phone','[ChatView] 手机系统未初始化');
-    return;
-  }
-
-  // 如果正在生成，则终止
-  if (phoneSystem.api.isGenerating) {
-    logger.info('phone','[ChatView] 终止生成');
-    phoneSystem.api.abort();
-
-    // 恢复按钮状态
-    sendButton.innerHTML = '<i class="fa-solid fa-paper-plane"></i>';
-    sendButton.disabled = false;
-    sendButton.classList.remove('generating');
-
-    // ✅ 触发事件：通知调试界面恢复按钮状态
-    document.dispatchEvent(new CustomEvent('phone-debug-reroll-end', {
-      detail: { contactId }
-    }));
-
-    return;
-  }
-
-  // 改变按钮状态（变成终止键）
-  sendButton.innerHTML = '<i class="fa-solid fa-circle-stop"></i>';
-  sendButton.classList.add('generating');
-
-  // 调用AI（使用PhoneAPI实例）
-  await phoneSystem.api.sendToAI(
-    contactId,
-    // onMessageReceived: 收到消息时的回调
-    async (message) => {
-      // ✅ 动态查找当前活跃页面（解决闭包绑定旧DOM的问题）
-      const currentPage = findActiveChatPage(contactId);
-
-      // 1. 尝试更新DOM（仅当页面存在且活跃时）
-      if (currentPage) {
-        // 重新加载联系人数据（确保使用最新数据）
-        const contacts = await loadContacts();
-        const currentContact = contacts.find(c => c.id === contactId);
-        if (currentContact) {
-          await appendMessageToChat(currentPage, message, currentContact, contactId);
-        }
-      }
-
-      // 2. 检查是否需要显示通知（页面不可见时显示）
-      const isCurrentChatVisible = isChatPageVisible(contactId);
-
-      // 注意：未读计数的增加已由 message-chat-data.js 的 saveChatMessage() 统一处理
-      // 不再需要在这里触发事件
-
-      // 检查通知设置
-      if (!isCurrentChatVisible && shouldShowNotification(contact, message)) {
-        // 页面不可见且允许通知，显示通知
-        const { showPhoneMessageNotification } = await import('../ui-components/toast-notification.js');
-        const displayName = getContactDisplayName(contact);
-
-        showPhoneMessageNotification({
-          contactId: contactId,  // ← 传入contactId获取对应头像
-          characterName: displayName,
-          title: '发来新消息',
-          content: getNotificationContent(contact, message),
-          onClick: () => {
-            // 点击通知，打开聊天页面
-            openChatFromNotification(contactId);
-          }
-        });
-      }
-    },
-    // onComplete: 完成时的回调
-    async () => {
-      logger.info('phone','[ChatView] AI回复完成');
-
-      // ✅ 递增轮次（AI回复完成后，本轮对话结束）
-      const { incrementRound } = await import('../messages/message-chat-data.js');
-      await incrementRound(contactId);
-      logger.debug('phone','[ChatView] 本轮对话结束，轮次已递增');
-
-      // ✅ 按钮状态由事件监听器自动更新（bindAIGenerationEvents）
-
-      // ✅ 清空个签操作记录（AI回复完成后，说明本轮对话结束）
-      const { clearSignatureActions } = await import('../ai-integration/pending-operations.js');
-      clearSignatureActions();
-
-      // 更新消息列表
-      updateMessageListItem(contactId);
-    },
-    // onError: 错误时的回调
-    (error) => {
-      logger.error('phone','[ChatView] AI回复失败:', error);
-
-      // ✅ 按钮状态由事件监听器自动更新（bindAIGenerationEvents）
-
-      // 显示错误提示
-      const toastr = window.toastr;
-      if (toastr) {
-        toastr.error(`AI回复失败: ${error}`);
+    if (canContinueProactively()) {
+      const [{ triggerManualProactive }, { showInfoToast }] = await Promise.all([
+        import('../ai-integration/manual-proactive.js'),
+        import('../ui-components/toast-notification.js')
+      ]);
+      // 导入期间可能刚完成文字暂存，重新核对当前联系人而不消费其他人的队列。
+      chatHistory = await loadChatHistory(contactId);
+      if (api.isGenerating || api.foregroundPending > 0) return;
+      if (canContinueProactively()) {
+        // 服务同步取得生成所有权；不清调试、不造普通快照，也不传UI保存/渲染回调。
+        const request = triggerManualProactive(contactId);
+        releasePreparation();
+        if (api.isGenerating && api.currentGeneratingContactId === contactId) handleRerollStart(page);
+        const result = await request;
+        if (result?.outcome === 'no-send') showInfoToast('角色这次选择不发');
+        return;
       }
     }
-  );
+
+    // 保留普通发送的多联系人快照、回调和轮次行为；不会自动发送未暂存的草稿。
+    const { clearDebugState, saveSnapshot } = await import('./message-debug-ui.js');
+    if (api.isGenerating || api.foregroundPending > 0) return;
+    clearDebugState(contactId);
+    const allPendingOps = getAllPendingOperations();
+    saveSnapshot(contactId, {
+      messageCount: chatHistory.length,
+      allPendingMessages: allPendingOps.messages,
+      signatureActions: allPendingOps.signatureActions || []
+    });
+    handleRerollStart(page);
+
+    const request = api.sendToAI(
+      contactId,
+      // onMessageReceived: 收到消息时的回调
+      async (message) => {
+        // ✅ 动态查找当前活跃页面（解决闭包绑定旧DOM的问题）
+        const currentPage = findActiveChatPage(contactId);
+
+        // 1. 尝试更新DOM（仅当页面存在且活跃时）
+        if (currentPage) {
+          // 重新加载联系人数据（确保使用最新数据）
+          const contacts = await loadContacts();
+          const currentContact = contacts.find(c => c.id === contactId);
+          if (currentContact) {
+            await appendMessageToChat(currentPage, message, currentContact, contactId);
+          }
+        }
+
+        // 2. 检查是否需要显示通知（页面不可见时显示）
+        const isCurrentChatVisible = isChatPageVisible(contactId);
+
+        // 注意：未读计数的增加已由 message-chat-data.js 的 saveChatMessage() 统一处理
+        // 不再需要在这里触发事件
+
+        // 检查通知设置
+        if (!isCurrentChatVisible && shouldShowNotification(contact, message)) {
+          // 页面不可见且允许通知，显示通知
+          const { showPhoneMessageNotification } = await import('../ui-components/toast-notification.js');
+          const displayName = getContactDisplayName(contact);
+
+          showPhoneMessageNotification({
+            contactId: contactId,  // ← 传入contactId获取对应头像
+            characterName: displayName,
+            title: '发来新消息',
+            content: getNotificationContent(contact, message),
+            onClick: () => {
+              // 点击通知，打开聊天页面
+              openChatFromNotification(contactId);
+            }
+          });
+        }
+      },
+      // onComplete: 完成时的回调
+      async () => {
+        logger.info('phone','[ChatView] AI回复完成');
+
+        // ✅ 递增轮次（AI回复完成后，本轮对话结束）
+        const { incrementRound } = await import('../messages/message-chat-data.js');
+        await incrementRound(contactId);
+        logger.debug('phone','[ChatView] 本轮对话结束，轮次已递增');
+
+        // ✅ 按钮状态由事件监听器自动更新（bindAIGenerationEvents）
+
+        // ✅ 清空个签操作记录（AI回复完成后，说明本轮对话结束）
+        const { clearSignatureActions } = await import('../ai-integration/pending-operations.js');
+        clearSignatureActions();
+
+        // 更新消息列表
+        updateMessageListItem(contactId);
+      },
+      // onError: 错误时的回调
+      (error) => {
+        logger.error('phone','[ChatView] AI回复失败:', error);
+
+        // ✅ 按钮状态由事件监听器自动更新（bindAIGenerationEvents）
+
+        // 普通回复沿用原来的错误回调。
+        const toastr = window.toastr;
+        if (toastr) {
+          toastr.error(`AI回复失败: ${error}`);
+        }
+      }
+    );
+    releasePreparation();
+    await request;
+  } catch (error) {
+    logger.error('phone','[ChatView] AI调用准备或主动继续失败:', error);
+    // 仅使用服务显式提供的安全文案，绝不把原始 error.message 显示给用户。
+    const userMessage = typeof error?.userMessage === 'string'
+      ? error.userMessage
+      : 'AI调用失败，请稍后重试';
+    handleRerollEnd(page);
+    window.toastr?.error(userMessage);
+  } finally {
+    releasePreparation();
+    if (!api?.isGenerating || api.currentGeneratingContactId !== contactId) handleRerollEnd(page);
+  }
 }
 
 /**
@@ -2867,6 +2910,16 @@ function setupChatListeners(page, contactId, contact) {
       description: '恢复纸飞机按钮',
     },
 
+    // AI开始生成（普通回复与手动主动继续共用状态事件）
+    {
+      eventName: 'phone-ai-generation-start',
+      handler: (e) => {
+        if (e.detail.contactId !== contactId) return;
+        handleRerollStart(page);
+      },
+      description: '纸飞机变成终止键',
+    },
+
     // 5. AI生成完成
     {
       eventName: 'phone-ai-generation-complete',
@@ -2900,7 +2953,7 @@ function setupChatListeners(page, contactId, contact) {
     },
   ]);
 
-  logger.info('phone','[ChatView] 监听器已注册，共7个事件');
+  logger.info('phone','[ChatView] 监听器已注册，共8个事件');
 }
 
 /**
@@ -3055,6 +3108,8 @@ function handleRerollStart(page) {
   if (sendBtn) {
     sendBtn.innerHTML = '<i class="fa-solid fa-circle-stop"></i>';
     sendBtn.classList.add('generating');
+    sendBtn.title = '停止生成';
+    sendBtn.setAttribute('aria-label', '停止当前生成');
     logger.debug('phone','[ChatView] 纸飞机按钮已变为终止键');
   }
 }
@@ -3068,6 +3123,8 @@ function handleRerollEnd(page) {
     sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i>';
     sendBtn.classList.remove('generating');
     sendBtn.disabled = false;
+    sendBtn.title = '调用AI；空内容时主动继续';
+    sendBtn.setAttribute('aria-label', '调用AI，空内容时手动主动继续');
     logger.debug('phone','[ChatView] 纸飞机按钮已恢复');
   }
 }

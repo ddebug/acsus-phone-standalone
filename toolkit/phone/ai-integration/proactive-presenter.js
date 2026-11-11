@@ -9,9 +9,9 @@ import { showPhoneMessageNotification } from '../ui-components/toast-notificatio
 const html = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;')
   .replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 
-export async function presentProactiveMessage(contactId, message) {
+export async function presentProactiveMessage(contactId, message, { manual = false } = {}) {
   const hour = new Date().getHours();
-  if (!getPhoneSystem()?.enabled || (hour >= 1 && hour < 9)) return;
+  if (!getPhoneSystem()?.enabled || (!manual && hour >= 1 && hour < 9)) return;
   const contact = (await loadContacts()).find(item => item.id === contactId);
   if (!contact) return;
   // Storage already contains the message; rendering is best effort, never retried as a send.
@@ -30,7 +30,10 @@ export async function presentProactiveMessage(contactId, message) {
   }
   document.dispatchEvent(new CustomEvent('phone-message-received', { detail: { contactId, message } }));
   const notifyHour = new Date().getHours();
-  if (contact.notificationDisabled === true || !getPhoneSystem()?.enabled || (notifyHour >= 1 && notifyHour < 9)) return { displayPending };
+  const currentPage = document.getElementById(`page-chat-${contactId.replace(/[^a-zA-Z0-9_-]/g, '_')}`);
+  const manuallyVisible = manual && currentPage?.classList.contains('active');
+  if (manuallyVisible || contact.notificationDisabled === true || !getPhoneSystem()?.enabled
+    || (!manual && notifyHour >= 1 && notifyHour < 9)) return { displayPending };
   // The shared notification renderer uses HTML internally: escape untrusted generated text.
   showPhoneMessageNotification({
     contactId,

@@ -21,6 +21,7 @@ const REQUEST_TIMEOUT = 120000;
 const SETTINGS_EVENT = 'standalone-phone-proactive-settings-changed';
 const USER_EVENT = 'standalone-phone-user-message-saved';
 const LOCK_NAME = 'standalone-phone-proactive-run';
+export const PROACTIVE_LOCK_NAME = LOCK_NAME;
 const UNSAFE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 let runtime = null;
 let localBusy = false;
@@ -128,7 +129,7 @@ function getState(phone, day) {
 }
 
 /** Prepare an immutable guard for an explicitly recovered proactive reply. No I/O. */
-export function buildManualProactiveState(phone, contactId, message) {
+export function buildManualProactiveState(phone, contactId, message, { countToday = true } = {}) {
   if (typeof contactId !== 'string' || !contactId || UNSAFE_KEYS.has(contactId)) throw new Error('联系人标识无效。');
   const user = latestUser(phone, contactId);
   const now = new Date();
@@ -148,7 +149,7 @@ export function buildManualProactiveState(phone, contactId, message) {
   const holder = { proactiveState: previous ? { ...previous, contacts } : undefined };
   const state = getState(holder, dayOf(now));
   if (!state) throw new Error('主动任务计数或系统日期异常，未覆盖原状态。');
-  if (dayOf(new Date(message.time * 1000)) === state.day) {
+  if (countToday && dayOf(new Date(message.time * 1000)) === state.day) {
     if (state.sent >= Number.MAX_SAFE_INTEGER) throw new Error('主动消息计数异常。');
     state.sent++;
   }
@@ -201,6 +202,20 @@ function silenceText(user, now) {
 function hiddenPrompt(user, date) {
   const clock = `${dayOf(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   return `[系统：现在是${clock}，user已经${silenceText(user, date.getTime())}没说话了。你可以主动给她发消息，也可以不发。如果不想发，只回复[不发]。]`;
+}
+
+/** Shared hidden prompt/source guard for a foreground empty-input gesture. */
+export function createManualProactiveContext(phone, contactId) {
+  const user = latestUser(phone, contactId);
+  return {
+    source: sourceKey(phone, contactId), userKey: user.key,
+    prompt: hiddenPrompt(user, new Date()) + '\n这次是用户此刻手动点击空白发送，邀请你主动继续聊天；不是一条新的用户文字发言。没有历史发言时不要虚构失联经历。',
+  };
+}
+
+export function manualProactiveContextIsCurrent(phone, contactId, context) {
+  return context?.source && sourceKey(phone, contactId) === context.source
+    && latestUser(phone, contactId).key === context.userKey;
 }
 
 function abortFlight(run, reason) {

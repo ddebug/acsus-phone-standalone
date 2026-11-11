@@ -284,16 +284,19 @@ export class PhoneAPI {
    * 一次隐藏主动检查。只请求文字，不进待发队列、调试快照或聊天记录；
    * 是否保存/限流/通知由调度器在重新核对用户活动后处理。
    */
-  async requestProactiveMessage(contactId, hiddenPrompt, { signal } = {}) {
+  async requestProactiveMessage(contactId, hiddenPrompt, { signal, manualController = null, requestId } = {}) {
     const abortError = () => new DOMException('主动检查已取消', 'AbortError');
     const replyError = (reason, message) => Object.assign(new Error(message), { proactiveReason: reason });
-    if (signal?.aborted || this.foregroundPending > 0 || this.isGenerating || this.proactiveAbortController) throw abortError();
+    const ownsManual = () => manualController && this.currentAbortController === manualController
+      && this.currentGeneratingContactId === contactId && this.foregroundPending === 1;
+    if (signal?.aborted || (manualController ? !ownsManual() : this.foregroundPending > 0 || this.isGenerating)
+      || this.proactiveAbortController) throw abortError();
     const controller = new AbortController();
     const cancel = () => controller.abort();
     signal?.addEventListener('abort', cancel, { once: true });
     this.proactiveAbortController = controller;
     const check = () => {
-      if (controller.signal.aborted || signal?.aborted || this.foregroundPending > 0 || this.isGenerating) throw abortError();
+      if (controller.signal.aborted || signal?.aborted || (manualController ? !ownsManual() : this.foregroundPending > 0 || this.isGenerating)) throw abortError();
     };
     try {
       const contact = (await loadContacts()).find(item => item.id === contactId);
@@ -308,7 +311,7 @@ export class PhoneAPI {
       })).filter(message => message.content.trim());
       messages.push({ role: 'system', content: `本次只检查角色${contact.name}是否主动问候，用户没有发出新消息。以下隐藏系统提醒不是用户发言，不得复述它或伪造用户回应。你可选择完全不发，此时只返回[不发]。如果选择发送，只返回一条普通文字消息的正文（可有换行），不要角色/消息标签、思考过程、工具调用、转账、好友申请、个签或其他操作。不要向其他联系人发消息。只回[不发]时不附加任何内容；启用角色小剧场时，可在正文后追加其专用包裹，包裹不属于发出的消息。` });
       messages.push({ role: 'user', content: hiddenPrompt });
-      const extrasTurn = await prepareCharacterExtrasTurn(messages, contactId);
+      const extrasTurn = await prepareCharacterExtrasTurn(messages, contactId, {}, { id: requestId });
       check();
       const settings = this.getSettings();
       let result;
