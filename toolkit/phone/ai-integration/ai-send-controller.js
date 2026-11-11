@@ -286,6 +286,7 @@ export class PhoneAPI {
    */
   async requestProactiveMessage(contactId, hiddenPrompt, { signal } = {}) {
     const abortError = () => new DOMException('主动检查已取消', 'AbortError');
+    const replyError = (reason, message) => Object.assign(new Error(message), { proactiveReason: reason });
     if (signal?.aborted || this.foregroundPending > 0 || this.isGenerating || this.proactiveAbortController) throw abortError();
     const controller = new AbortController();
     const cancel = () => controller.abort();
@@ -296,7 +297,7 @@ export class PhoneAPI {
     };
     try {
       const contact = (await loadContacts()).find(item => item.id === contactId);
-      if (!contact) throw new Error('主动消息联系人不存在');
+      if (!contact) throw replyError('contact-missing', '主动消息联系人不存在');
       const context = await buildMessagesArray(contactId, {}, { proactive: true, characterName: contact.name });
       check();
       // 无新图片/用户操作，不注入待发送内容；旧图保留文字描述，不额外下载图像。
@@ -313,33 +314,33 @@ export class PhoneAPI {
       let result;
       if (settings.apiConfig?.source === 'custom') {
         const current = this.getCurrentCustomConfig();
-        if (!current) throw new Error('请先配置手机 API');
+        if (!current) throw replyError('api-not-configured', '请先配置手机 API');
         const config = this.buildSharedApiConfig(current, false);
-        config.maxTokens = Math.min(Number(config.maxTokens) > 0 ? Number(config.maxTokens) : 1024, 1024);
+        // 沿用手机 API 已配置的输出额度，不能另压成1024而让推理/附加内容截断正常回复。
         result = await generate(config, messages, { signal: controller.signal, module: 'phone' });
       } else {
         result = await generateWithDefault(messages, { signal: controller.signal, module: 'phone' });
       }
       check();
       const finish = result.raw?.choices?.[0]?.finish_reason || result.raw?.stop_reason;
-      if (finish === 'length' || finish === 'max_tokens') throw new Error('主动消息输出被截断，未发送');
+      if (finish === 'length' || finish === 'max_tokens') throw replyError('reply-truncated', '主动消息输出被截断，未发送');
       const separated = splitCharacterExtras(String(result.text || ''));
       let text = separated.text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
       // 兼容误用正常标签的单角色纯文字回复，不走具有副作用的常规操作解析器。
       if (text.startsWith('[角色-')) {
         const blocks = [...text.matchAll(/\[角色-([^\]]+)\]/g)];
         if (blocks.length !== 1 || blocks[0][1].replace(/\s/g, '') !== contact.name.replace(/\s/g, '')) {
-          throw new Error('主动回复包含其他角色，未发送');
+          throw replyError('reply-role-mismatch', '主动回复包含其他角色，未发送');
         }
         const opening = text.indexOf('[消息]');
-        if (opening < 0) throw new Error('主动回复格式无效');
+        if (opening < 0) throw replyError('reply-format', '主动回复格式无效');
         text = text.slice(opening + '[消息]'.length).replace(/\[\/消息\][\s\S]*$/, '').replace(/\[\/角色-[^\]]+\]\s*$/, '').trim();
       }
       if (text === '[不发]') return { text, extrasTurn, extrasBlocks: [] };
-      if (!text) throw new Error('主动回复为空，未发送');
+      if (!text) throw replyError('empty-reply', '主动回复为空，未发送');
       if (text.length > 8000 || text.includes(hiddenPrompt) ||
           /\[(?:系统[:：]|操作-|角色-|消息\]|改个签\]|好友申请\]|转账\]|红包\]|约定计划|开会员\]|送会员\])/.test(text) || /<think>/i.test(text)) {
-        throw new Error('主动回复不符合普通文字要求，未发送');
+        throw replyError('reply-unsupported', '主动回复不符合普通文字要求，未发送');
       }
       return { text, extrasTurn, extrasBlocks: separated.blocks };
     } finally {

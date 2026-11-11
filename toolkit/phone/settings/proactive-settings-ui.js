@@ -127,7 +127,7 @@ export async function renderProactiveSettingsPage() {
   if (!runtimeState.supported) {
     fields.appendChild(description('当前浏览器/地址不支持 Web Locks 安全互斥，自动付费请求已暂停。请使用 localhost、HTTPS 或支持此功能的客户端；普通局域网 HTTP 页面可能不支持。设置仍可保存。'));
   } else if (runtimeState.faulted) {
-    fields.appendChild(description('主动任务因写入/互斥异常已暂停，请先处理手机存储提示，再重新加载。不会自动强制覆盖或重试。'));
+    fields.appendChild(description('主动任务因写入/互斥异常已暂停，请先查看手机存储提示；刷新前请先保留现有数据备份，再核对保存结果。'));
   }
   const diagnostics = document.createElement('details');
   diagnostics.style.cssText = 'margin:0.75em 1em;color:var(--phone-text-secondary);';
@@ -136,21 +136,58 @@ export async function renderProactiveSettingsPage() {
   diagnostics.appendChild(summary);
   diagnostics.appendChild(description(`今日发送额度已用 ${runtimeState.sent} 条（未确认写入也保守计入），模型尝试 ${runtimeState.attempts} 次。最近检查：${runtimeState.lastCheckAt ? new Date(runtimeState.lastCheckAt).toLocaleString() : '尚未检查'}。`));
   const outcomeLabels = {
-    sent: '上次已发送（未回复时不会再次主动）',
+    sent: '聊天记录已确认持久保存（未回复时不会再次主动）',
+    saving: '正在保存聊天记录（尚未确认）',
+    'save-unconfirmed': '聊天记录保存未确认，刷新前请先保留现有数据备份',
     'no-send': '上次模型选择不发',
     reserved: '上次请求已预留；若被刷新中断，不会自动重发',
-    error: '上次失败或取消，发一条新消息后恢复资格',
-    discarded: '上次环境或用户活动已改变，未发送',
-    'invalid-response': '上次返回无效，发一条新消息后恢复资格',
+    error: '上次请求失败或取消，未发送；以后按15分钟检查和尝试上限继续',
+    discarded: '上次因运行状态变化而结束',
+    'invalid-response': '上次模型返回未通过校验，未保存聊天消息',
   };
-  for (const { contactId, outcome } of runtimeState.outcomes) {
+  const reasonLabels = {
+    stopped: '主动任务已停止',
+    'task-faulted': '主动任务因异常暂停，请查看手机存储提示',
+    'storage-unavailable': '手机存储暂不可用',
+    'quiet-hours': '处于免打扰时段',
+    'day-changed': '设备本地日期已变化',
+    'data-replaced': '手机数据已更换',
+    'api-replaced': 'API 配置已变化',
+    'foreground-busy': '当前有其他聊天请求进行中',
+    disabled: '主动消息已关闭',
+    'settings-changed': '主动消息设置已变化',
+    'daily-limit': '已达每日消息上限',
+    'user-replied': '你已回复该角色',
+    'context-changed': '聊天上下文已变化',
+    'request-timeout': '模型请求超时',
+    'request-aborted': '模型请求已取消',
+    'request-failed': '模型请求失败',
+    'empty-reply': '模型返回为空',
+    'reply-truncated': '模型返回被截断',
+    'reply-role-mismatch': '模型返回的消息角色不符合要求',
+    'reply-format': '模型返回格式不符合要求',
+    'reply-unsupported': '模型返回包含不支持的内容',
+    'api-not-configured': '尚未配置可用的模型 API',
+    'contact-missing': '角色已不存在',
+    'message-save-unconfirmed': '消息保存未确认，刷新前请先保留现有数据备份',
+    'saved-then-data-replaced': '消息曾确认保存，但随后手机数据已更换',
+    'display-pending': '消息已确认保存，聊天显示待更新；可关闭并重新打开手机',
+  };
+  for (const { contactId, outcome, reason } of runtimeState.outcomes) {
     const role = contacts.find(contact => contact.id === contactId);
-    if (role && outcomeLabels[outcome]) diagnostics.appendChild(description(`${getContactDisplayName(role)}：${outcomeLabels[outcome]}。`));
+    // Only fixed own labels may reach textContent; never render unknown status payloads.
+    const outcomeLabel = typeof outcome === 'string' && Object.prototype.hasOwnProperty.call(outcomeLabels, outcome)
+      ? outcomeLabels[outcome] : '';
+    const reasonLabel = typeof reason === 'string' && Object.prototype.hasOwnProperty.call(reasonLabels, reason)
+      ? reasonLabels[reason] : '';
+    if (role && (outcomeLabel || reasonLabel)) {
+      diagnostics.appendChild(description(`${getContactDisplayName(role)}：${[outcomeLabel, reasonLabel].filter(Boolean).join('；')}。`));
+    }
   }
-  fields.appendChild(diagnostics);
+  fields.append(diagnostics, description('模型实际返回后，仍可能未通过校验或保存；只有“聊天记录已确认持久保存”（sent）表示已核验保存。保存未确认时，刷新前请先保留现有数据备份；已保存但显示待更新时，可关闭并重新打开手机。此处状态不代表已查明某次问题的根因。'));
 
   const master = checkboxRow('启用主动消息（默认关闭）', settings.enabled);
-  fields.append(master.row, description('只有你勾选并保存后才会启用；自动调用当前配置的模型 API 可能产生费用。这里不会发起模型测试。'));
+  fields.append(master.row, description('只有你勾选并保存后才会启用；自动调用当前配置的模型 API 可能产生费用，并沿用手机 API 的输出上限（含模型推理 token）。这里不会发起模型测试。'));
 
   fields.append(sectionTitle('允许主动联系的角色'));
   const roles = document.createElement('div');
@@ -245,12 +282,10 @@ export async function renderProactiveSettingsPage() {
       const capability = getProactiveSchedulerStatus();
       status.textContent = !saved.enabled ? '已确认保存，主动消息保持关闭。'
         : !capability.supported ? '已保存，但当前页面不支持安全互斥，自动请求仍暂停。'
-        : capability.faulted ? '设置已保存；请先处理存储提示并重新加载，恢复自动检查。'
+        : capability.faulted ? '设置已保存；主动任务仍暂停，请先查看存储提示，刷新前保留现有数据备份。'
         : '已确认保存，主动消息已启用。';
-    } catch (error) {
-      status.textContent = error instanceof TypeError || error instanceof RangeError
-        ? error.message
-        : '保存未确认，请查看手机存储状态。若提示冲突或写入结果不明，请重新加载后核对，勿反复重试。';
+    } catch {
+      status.textContent = '保存未确认，请检查角色选择、时间和数量设置，并查看手机存储状态。刷新前请先保留现有数据备份，再核对保存结果。';
     } finally {
       busy = false;
       fields.disabled = false;

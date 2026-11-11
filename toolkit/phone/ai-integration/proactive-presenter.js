@@ -1,6 +1,7 @@
 /** Present only a durably saved proactive message. Never saves or increments unread twice. */
 import logger from '../../../logger.js';
 import { loadContacts } from '../contacts/contact-list-data.js';
+import { loadChatHistory } from '../messages/message-chat-data.js';
 import { getContactDisplayName } from '../utils/contact-display-helper.js';
 import { getPhoneSystem } from '../phone-system.js';
 import { showPhoneMessageNotification } from '../ui-components/toast-notification.js';
@@ -14,17 +15,22 @@ export async function presentProactiveMessage(contactId, message) {
   const contact = (await loadContacts()).find(item => item.id === contactId);
   if (!contact) return;
   // Storage already contains the message; rendering is best effort, never retried as a send.
+  let displayPending = false;
   try {
     const id = `page-chat-${contactId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     const page = document.getElementById(id);
     if (page?.isConnected) {
       const { appendMessageToChat } = await import('../messages/message-chat-ui.js');
       await appendMessageToChat(page, message, contact, contactId);
+      displayPending = !page.querySelector(`[data-msg-id="${message.id}"]`);
     }
-  } catch { logger.warn('phone', '[Proactive] 消息已保存，界面将在重新打开聊天后更新'); }
+  } catch {
+    displayPending = true;
+    logger.warn('phone', '[Proactive] 消息已保存，但当前聊天显示待更新；点击通知会补显，不会重发模型请求');
+  }
   document.dispatchEvent(new CustomEvent('phone-message-received', { detail: { contactId, message } }));
   const notifyHour = new Date().getHours();
-  if (contact.notificationDisabled === true || !getPhoneSystem()?.enabled || (notifyHour >= 1 && notifyHour < 9)) return;
+  if (contact.notificationDisabled === true || !getPhoneSystem()?.enabled || (notifyHour >= 1 && notifyHour < 9)) return { displayPending };
   // The shared notification renderer uses HTML internally: escape untrusted generated text.
   showPhoneMessageNotification({
     contactId,
@@ -37,7 +43,19 @@ export async function presentProactiveMessage(contactId, message) {
         if (!overlay) return;
         const { showPage } = await import('../phone-main-ui.js');
         await showPage(overlay, 'chat', { contactId });
+        const saved = (await loadChatHistory(contactId)).find(item => item.id === message.id);
+        if (!saved) return; // 已删除/已导入其他数据时不能从旧通知复活气泡。
+        const page = document.getElementById(`page-chat-${contactId.replace(/[^a-zA-Z0-9_-]/g, '_')}`);
+        if (page?.isConnected && !page.querySelector(`[data-msg-id="${message.id}"]`)) {
+          const current = (await loadContacts()).find(item => item.id === contactId);
+          if (current) {
+            const { appendMessageToChat } = await import('../messages/message-chat-ui.js');
+            getPhoneSystem()?.api?.resetRenderedState(contactId);
+            await appendMessageToChat(page, saved, current, contactId);
+          }
+        }
       })().catch(() => logger.warn('phone', '[Proactive] 请从手机消息列表打开聊天'));
     },
   });
+  return { displayPending };
 }

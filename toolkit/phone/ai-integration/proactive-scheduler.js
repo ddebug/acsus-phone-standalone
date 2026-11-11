@@ -24,6 +24,7 @@ const LOCK_NAME = 'standalone-phone-proactive-run';
 const UNSAFE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 let runtime = null;
 let localBusy = false;
+const activeSaves = new Set(); // runtime-only: atomic snapshots may contain sent before the ack arrives.
 
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
@@ -165,7 +166,11 @@ async function request(run, contactId, user) {
   run.flight = flight;
   let rejectAbort;
   const aborted = new Promise((resolve, reject) => { rejectAbort = reject; });
-  const onAbort = () => rejectAbort(new Error('aborted'));
+  const onAbort = () => {
+    const error = new Error('aborted');
+    error.proactiveReason = flight.reason === 'timeout' ? 'request-timeout' : 'request-aborted';
+    rejectAbort(error);
+  };
   controller.signal.addEventListener('abort', onAbort, { once: true });
   const timeout = globalThis.setTimeout(() => abortFlight(run, 'timeout'), REQUEST_TIMEOUT);
   try {
@@ -187,22 +192,67 @@ async function request(run, contactId, user) {
   }
 }
 
-function stillValid(run, phone, state, settingsKey, contactId, user, source, api) {
+function invalidReason(run, phone, state, settingsKey, contactId, user, source, api) {
   const now = new Date();
   const settings = getProactiveSettings();
-  return enabled(run) && !run.faulted && storageReady() && !quiet(now)
-    && dayOf(now) === state.day && phoneData() === phone && phone.proactiveState === state
-    && run.system.api === api && !normalBusy(api) && settings.enabled === true
-    && fingerprint(settings) === settingsKey && settings.contactIds.includes(contactId)
-    && state.sent < settings.dailyLimit && latestUser(phone, contactId).key === user.key
-    && sourceKey(phone, contactId) === source;
+  if (!enabled(run)) return 'stopped';
+  if (run.faulted) return 'task-faulted';
+  if (!storageReady()) return 'storage-unavailable';
+  if (quiet(now)) return 'quiet-hours';
+  if (dayOf(now) !== state.day) return 'day-changed';
+  if (phoneData() !== phone || phone.proactiveState !== state) return 'data-replaced';
+  if (run.system.api !== api) return 'api-replaced';
+  if (normalBusy(api)) return 'foreground-busy';
+  if (!settings.enabled) return 'disabled';
+  if (fingerprint(settings) !== settingsKey || !settings.contactIds.includes(contactId)) return 'settings-changed';
+  if (state.sent >= settings.dailyLimit) return 'daily-limit';
+  if (latestUser(phone, contactId).key !== user.key) return 'user-replied';
+  if (sourceKey(phone, contactId) !== source) return 'context-changed';
+  return null;
+}
+
+const requestReason = error => {
+  const known = new Set(['request-timeout', 'request-aborted', 'empty-reply', 'reply-truncated',
+    'reply-role-mismatch', 'reply-format', 'reply-unsupported', 'api-not-configured', 'contact-missing']);
+  return known.has(error?.proactiveReason) ? error.proactiveReason
+    : error?.name === 'AbortError' ? 'request-aborted' : 'request-failed';
+};
+
+// Only a delivered (or write-uncertain) message waits for a human reply.
+// Known pre-save failures may retry on a later 15m tick, within the attempt budget.
+function releaseUnsentGuard(phone, contactId, entry) {
+  if (!entry.awaitingUserKey || !['error', 'discarded', 'invalid-response', 'no-send'].includes(entry.lastOutcome)
+    || ['message-save-unconfirmed', 'saved-then-data-replaced'].includes(entry.lastError)
+    || typeof entry.proactiveRequestId !== 'string' || !entry.proactiveRequestId) return false;
+  const history = phone.chats?.[`chat_${contactId}`];
+  if (Array.isArray(history) && history.some(message => message?.proactiveRequestId === entry.proactiveRequestId)) return false;
+  delete entry.awaitingUserKey;
+  delete entry.awaitingUser;
+  return true;
+}
+
+async function finishUnsent(phone, state, contactId, entry, outcome, reason) {
+  if (phoneData() !== phone || phone.proactiveState !== state) return;
+  const previousKey = entry.awaitingUserKey;
+  const previousUser = entry.awaitingUser;
+  entry.lastOutcome = outcome;
+  entry.lastError = reason;
+  const released = releaseUnsentGuard(phone, contactId, entry);
+  try { await persist(); }
+  catch (error) {
+    if (released) {
+      entry.awaitingUserKey = previousKey;
+      entry.awaitingUser = previousUser;
+    }
+    throw error;
+  }
 }
 
 async function attempt(run, phone, state, settings, contactId, entry, user, slots) {
   const settingsKey = fingerprint(settings);
   const source = sourceKey(phone, contactId);
   const api = run.system.api;
-  if (!source || !stillValid(run, phone, state, settingsKey, contactId, user, source, api)) return;
+  if (!source || invalidReason(run, phone, state, settingsKey, contactId, user, source, api)) return;
   const requestId = globalThis.crypto.randomUUID();
   const now = Date.now();
   // Reserve and verify BEFORE network. Errors, reloads and ambiguous outcomes
@@ -212,36 +262,36 @@ async function attempt(run, phone, state, settings, contactId, entry, user, slot
   entry.awaitingUserKey = user.key;
   entry.awaitingUser = { index: user.index, time: user.time, identity: user.identity };
   entry.lastOutcome = 'reserved';
+  entry.replyReceived = false;
+  delete entry.lastError;
   entry.proactiveRequestId = requestId;
   entry.slots = {
     day: state.day,
     times: [...new Set([...(entry.slots?.day === state.day ? entry.slots.times ?? [] : []), ...slots])],
   };
   await persist();
-  if (!stillValid(run, phone, state, settingsKey, contactId, user, source, api)) {
-    entry.lastOutcome = 'discarded';
-    await persist();
+  const beforeRequest = invalidReason(run, phone, state, settingsKey, contactId, user, source, api);
+  if (beforeRequest) {
+    await finishUnsent(phone, state, contactId, entry, 'discarded', beforeRequest);
     return;
   }
 
   let response;
   try {
     response = await request(run, contactId, user);
-  } catch {
-    entry.lastOutcome = 'error';
-    entry.lastError = 'request-failed-or-aborted';
-    await persist();
+  } catch (error) {
+    await finishUnsent(phone, state, contactId, entry, 'error', requestReason(error));
     return;
   }
-  if (!stillValid(run, phone, state, settingsKey, contactId, user, source, api)) {
-    entry.lastOutcome = 'discarded';
-    await persist();
+  entry.replyReceived = true;
+  const afterReply = invalidReason(run, phone, state, settingsKey, contactId, user, source, api);
+  if (afterReply) {
+    await finishUnsent(phone, state, contactId, entry, 'discarded', afterReply);
     return;
   }
   const responseText = typeof response === 'string' ? response : response?.text;
   if (typeof responseText !== 'string' || !responseText.trim()) {
-    entry.lastOutcome = 'invalid-response';
-    await persist();
+    await finishUnsent(phone, state, contactId, entry, 'invalid-response', 'empty-reply');
     return;
   }
   const text = responseText.trim();
@@ -266,8 +316,8 @@ async function attempt(run, phone, state, settings, contactId, entry, user, slot
   // file. Failed/uncertain saves are never retried and never presented.
   const sentAt = new Date();
   if (quiet(sentAt) || dayOf(sentAt) !== state.day || !enabled(run)) {
-    entry.lastOutcome = 'discarded';
-    await persist();
+    await finishUnsent(phone, state, contactId, entry, 'discarded',
+      quiet(sentAt) ? 'quiet-hours' : dayOf(sentAt) !== state.day ? 'day-changed' : 'stopped');
     return;
   }
   const message = {
@@ -277,13 +327,28 @@ async function attempt(run, phone, state, settings, contactId, entry, user, slot
     time: Math.floor(sentAt.getTime() / 1000), proactive: true, proactiveRequestId: requestId,
   };
   state.sent++;
-  entry.lastOutcome = 'sent';
+  entry.lastOutcome = 'sent'; // 与消息一起写入同一个已核验快照；失败时必须更正本地诊断。
+  entry.messageId = message.id;
   delete entry.lastError;
-  await saveChatMessage(contactId, message, { strict: true });
-  await flushPhoneStorage();
-  if (!storageReady() || phoneData() !== phone || phone.proactiveState !== state
+  activeSaves.add(requestId);
+  try {
+    await saveChatMessage(contactId, message, { strict: true });
+  } catch (error) {
+    entry.lastOutcome = 'save-unconfirmed';
+    entry.lastError = 'message-save-unconfirmed';
+    // 上传结果可能不明，不回滚气泡/额度、不再次写入、不假称 sent。
+    throw error;
+  } finally {
+    activeSaves.delete(requestId);
+  }
+  // strict 保存已确认消息本身；随后未读数的独立防抖写入失败不能让已存回复不显示。
+  if (phoneData() !== phone || phone.proactiveState !== state
     || !phone.chats?.[`chat_${contactId}`]?.some(item => item.id === message.id
-      && item.proactiveRequestId === requestId)) throw new Error('storage-unverified');
+      && item.proactiveRequestId === requestId)) {
+    entry.lastOutcome = 'discarded';
+    entry.lastError = 'saved-then-data-replaced';
+    return;
+  }
   // 小剧场只关联这条已确认写入的消息，既不新增气泡也不回灌下次请求。
   try {
     await persistCharacterExtrasTurn(response?.extrasTurn, response?.extrasBlocks,
@@ -293,8 +358,14 @@ async function attempt(run, phone, state, settings, contactId, entry, user, slot
   // not lead to retrying the stored bubble, decrementing budget or clearing await.
   try {
     const { presentProactiveMessage } = await import('./proactive-presenter.js');
-    if (enabled(run)) await presentProactiveMessage(contactId, message);
-  } catch { /* Saved successfully; no false notification or replay. */ }
+    if (enabled(run) && phoneData() === phone) {
+      const presentation = await presentProactiveMessage(contactId, message);
+      if (presentation?.displayPending) entry.lastError = 'display-pending';
+    }
+  } catch {
+    entry.lastError = 'display-pending';
+    // 已保存，不能作为发送失败重发。此诊断只保留在内存，避免额外写入冲突。
+  }
 }
 
 async function tickLocked(run) {
@@ -304,6 +375,9 @@ async function tickLocked(run) {
   const settings = getProactiveSettings();
   const date = new Date();
   if (!settings.enabled || quiet(date)) return;
+  // 初始化只会补齐本地默认配置，不会调用模型。必须早于源指纹/预留，
+  // 否则首次 requestProactiveMessage.getSettings() 会让自己的快照失效。
+  run.system.api.getSettings?.();
   const phone = phoneData();
   if (!record(phone)) return;
   const state = getState(phone, dayOf(date));
@@ -325,6 +399,8 @@ async function tickLocked(run) {
     if (entry !== undefined && !record(entry)) continue;
     if (!entry) entry = state.contacts[contactId] = {};
     if (count(entry.lastAttemptAt) > 0 && Date.now() - entry.lastAttemptAt < MIN_GAP) continue;
+    // 修复旧版把明确未发送的失败永久当成“等用户回复”；不动 reserved/sent/写入不明。
+    releaseUnsentGuard(phone, contactId, entry);
     const user = latestUser(phone, contactId);
     if (!hasNewUser(entry, user)) continue;
     const current = new Date();
@@ -381,7 +457,11 @@ export function getProactiveSchedulerStatus() {
     lastCheckAt: count(state?.lastCheckAt),
     outcomes: getProactiveSettings().contactIds.map(contactId => {
       const entry = state?.contacts?.[contactId];
-      return { contactId, outcome: typeof entry?.lastOutcome === 'string' ? entry.lastOutcome : '' };
+      return {
+        contactId, outcome: activeSaves.has(entry?.proactiveRequestId) ? 'saving'
+          : typeof entry?.lastOutcome === 'string' ? entry.lastOutcome : '',
+        reason: typeof entry?.lastError === 'string' ? entry.lastError : '',
+      };
     }),
   };
 }
