@@ -174,10 +174,10 @@ function createSettingsList(contact) {
             </span>
         </button>
 
-        <!-- 手动补录最终角色回复：不调用 AI -->
+        <!-- AI 消息调试内的补录入口：补录不调用 AI -->
         <button type="button" class="chat-settings-item" data-action="manual-reply"
-                aria-label="补录角色回复" style="width:calc(100% - 2em);border:0;font:inherit;text-align:left;color:var(--phone-text-primary);">
-            <span class="chat-settings-item-label">补录角色回复</span>
+                aria-label="调用调试 / 补录回复" style="width:calc(100% - 2em);border:0;font:inherit;text-align:left;color:var(--phone-text-primary);">
+            <span class="chat-settings-item-label">调用调试 / 补录回复</span>
             <span class="chat-settings-item-right" aria-hidden="true">
                 <i class="fa-solid fa-chevron-right"></i>
             </span>
@@ -325,7 +325,7 @@ function bindSettingsEvents(list, contact) {
     handleCharacterExtras(contact);
   });
 
-  // 手动补录角色回复
+  // 别名入口：打开 AI 消息调试的补录页签
   list.querySelector('[data-action="manual-reply"]').addEventListener('click', () => {
     handleManualReply(contact);
   });
@@ -471,15 +471,10 @@ async function handleCharacterExtras(contact) {
   }
 }
 
-/** 打开当前联系人的手动补录页；预览和保存均不调用模型。 */
+/** 保留设置入口别名；补录整合在 AI 消息调试中，不再打开独立页面。 */
 async function handleManualReply(contact) {
-  const { showPage } = await import('../phone-main-ui.js');
-  const overlay = document.querySelector('.phone-overlay');
-  if (overlay) {
-    await showPage(/** @type {HTMLElement} */(overlay), 'manual-reply', {
-      contactId: contact.id
-    });
-  }
+  const { openDebugUI } = await import('./message-debug-ui.js');
+  await openDebugUI(contact.id, { tab: 'recovery' });
 }
 
 /**

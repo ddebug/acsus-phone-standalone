@@ -15,9 +15,13 @@
 import logger from '../../../logger.js';
 import { loadContacts } from '../contacts/contact-list-data.js';
 import { loadChatHistory, saveChatMessage } from './message-chat-data.js';
-import { parseAIResponse } from '../ai-integration/ai-response-parser.js';
+import { parseAIResponse, validateAIResponse } from '../ai-integration/ai-response-parser.js';
+import { splitCharacterExtras } from './character-extras-data.js';
 import { getContactDisplayName } from '../utils/contact-display-helper.js';
 import { registerListener, destroyPageListeners } from '../utils/listener-manager.js';
+import { attachDebugRecoveryShell } from './message-debug-recovery.js';
+
+const popupShells = new WeakMap();
 
 // ========================================
 // [CORE] 状态管理
@@ -54,21 +58,29 @@ export function clearDebugState(contactId) {
  * - signatureActions：个签操作记录（点赞、评论、修改个签）
  */
 export function saveSnapshot(contactId, snapshotData) {
+  const messageCount = typeof snapshotData === 'number' ? snapshotData : snapshotData?.messageCount;
+  if (!Number.isSafeInteger(messageCount) || messageCount < 0) {
+    const previous = debugStates.get(contactId);
+    if (previous) { previous.snapshot = null; previous.hasSnapshot = false; }
+    return;
+  }
   let state = debugStates.get(contactId);
   if (!state) {
     state = {
       versions: [],
       currentIndex: 0,
-      snapshot: { messageCount: 0 }
+      snapshot: null,
+      hasSnapshot: false
     };
     debugStates.set(contactId, state);
   }
 
   state.snapshot = {
-    messageCount: snapshotData.messageCount || snapshotData, // 兼容旧版本：如果传数字则作为 messageCount
-    allPendingMessages: snapshotData.allPendingMessages || null,
-    signatureActions: snapshotData.signatureActions || []
+    messageCount,
+    allPendingMessages: snapshotData?.allPendingMessages || null,
+    signatureActions: snapshotData?.signatureActions || []
   };
+  state.hasSnapshot = true;
 
   logger.debug('phone','[Debug] 保存快照:', contactId, '消息数量:', state.snapshot.messageCount, '待发送联系人数:',
     state.snapshot.allPendingMessages ? Object.keys(state.snapshot.allPendingMessages).length : 0);
@@ -85,7 +97,8 @@ export function saveDebugVersion(contactId, text) {
     state = {
       versions: [],
       currentIndex: 0,
-      snapshot: { messageCount: 0 }
+      snapshot: null,
+      hasSnapshot: false
     };
     debugStates.set(contactId, state);
   }
@@ -132,53 +145,56 @@ let isCompareMode = false;
  * @async
  * @param {string} contactId - 联系人ID
  */
-export async function openDebugUI(contactId) {
+export async function openDebugUI(contactId, { tab = 'raw' } = {}) {
   logger.info('phone','[Debug] 打开调试界面:', contactId);
-
-  const state = debugStates.get(contactId);
-  if (!state || state.versions.length === 0) {
-    const toastr = window.toastr;
-    if (toastr) {
-      toastr.warning('暂无调试数据，请先发送消息');
+  if (currentPopup) {
+    const shell = popupShells.get(currentPopup);
+    if (currentContactId === contactId) {
+      await shell?.activate(tab);
+      return;
     }
-    return;
+    if (!closeDebugUI()) return;
   }
-
+  // 空窗口只用于粘贴补录，绝不能创建 messageCount=0 的假回退快照。
+  const state = debugStates.get(contactId) || { versions: [], currentIndex: 0, snapshot: null, hasSnapshot: false };
   currentContactId = contactId;
   currentFontSize = 14;
   isCompareMode = false;
-
-  // 创建弹窗
   const popup = createDebugPopup(contactId, state);
   currentPopup = popup;
-
   popup.classList.add('standalone-phone-debug');
   document.body.appendChild(popup);
-
-  // 触发动画（和通用弹窗一致）
-  requestAnimationFrame(() => {
-    popup.classList.add('show');
+  const shell = attachDebugRecoveryShell(popup, contactId, {
+    getState: () => debugStates.get(contactId),
+    invalidateSnapshot: () => {
+      const latest = debugStates.get(contactId);
+      if (latest) { latest.snapshot = null; latest.hasSnapshot = false; }
+    },
+    initialTab: tab,
   });
-
-  // 绑定事件
+  popupShells.set(popup, shell);
   bindDebugEvents(popup, contactId);
+  requestAnimationFrame(() => { if (currentPopup === popup && popup.isConnected) popup.classList.add('show'); });
+  void import('../utils/theme-surfaces.js').then(({ applySavedPhoneSurfaceTheme }) => applySavedPhoneSurfaceTheme(popup)).catch(() => {});
 }
 
 /**
  * 关闭调试界面
  */
 function closeDebugUI() {
-  if (currentPopup) {
-    // 先移除 .show 类触发动画
-    currentPopup.classList.remove('show');
-
-    // 等待动画结束后再移除元素
-    setTimeout(() => {
-      currentPopup.remove();
-      currentPopup = null;
-      currentContactId = null;
-    }, 300);  // 300ms 和 CSS transition 时长一致
-  }
+  const popup = currentPopup;
+  if (!popup) return true;
+  const shell = popupShells.get(popup);
+  if (shell?.isBusy()) return false;
+  shell?.dispose();
+  destroyPageListeners('message-debug');
+  popupShells.delete(popup);
+  currentPopup = null;
+  currentContactId = null;
+  popup.classList.remove('show');
+  // 捕获旧窗口，避免动画结束时误删已新开的另一个窗口。
+  setTimeout(() => popup.remove(), 300);
+  return true;
 }
 
 /**
@@ -247,7 +263,8 @@ function createContentArea(state) {
 
   const textarea = document.createElement('textarea');
   textarea.className = 'debug-textarea';
-  textarea.value = currentVersion.text;
+  textarea.value = currentVersion?.text || '';
+  textarea.placeholder = '尚无缓存返回；可切到“补录角色回复”粘贴日志中的最终正文。';
   textarea.style.fontSize = `${currentFontSize}px`;
 
   textareaContainer.appendChild(textarea);
@@ -295,17 +312,18 @@ function createFooter() {
  * @param {string} contactId - 联系人ID
  */
 function bindDebugEvents(popup, contactId) {
+  const run = (action, requiresSnapshot = false) => popupShells.get(popup)?.runLegacy(action, { requiresSnapshot });
   // 关闭按钮
   const closeBtn = popup.querySelector('.debug-close-btn');
   closeBtn?.addEventListener('click', closeDebugUI);
 
   // 对比模式
   const compareBtn = popup.querySelector('.debug-compare-btn');
-  compareBtn?.addEventListener('click', () => handleCompare(popup, contactId));
+  compareBtn?.addEventListener('click', () => run(() => handleCompare(popup, contactId)));
 
   // 辅助检查
   const validateBtn = popup.querySelector('.debug-validate-btn');
-  validateBtn?.addEventListener('click', () => handleValidate(popup, contactId));
+  validateBtn?.addEventListener('click', () => run(() => handleValidate(popup, contactId)));
 
   // 字体调节
   const fontMinusBtn = popup.querySelector('.debug-font-minus');
@@ -315,11 +333,14 @@ function bindDebugEvents(popup, contactId) {
 
   // 重新应用
   const reapplyBtn = popup.querySelector('.debug-reapply-btn');
-  reapplyBtn?.addEventListener('click', () => handleReapply(popup, contactId));
+  reapplyBtn?.addEventListener('click', async () => {
+    const applied = await run(() => handleReapply(popup, contactId), true);
+    if (applied && currentPopup === popup) closeDebugUI();
+  });
 
   // 重roll
   const rerollBtn = popup.querySelector('.debug-reroll-btn');
-  rerollBtn?.addEventListener('click', () => handleReroll(popup, contactId));
+  rerollBtn?.addEventListener('click', () => run(() => handleReroll(popup, contactId), true));
 
   // 版本翻页
   const prevBtn = popup.querySelector('.debug-version-prev');
@@ -328,10 +349,8 @@ function bindDebugEvents(popup, contactId) {
   nextBtn?.addEventListener('click', () => handleVersionChange(popup, contactId, 1));
 
   // 点击遮罩关闭
-  popup.parentElement.addEventListener('click', (e) => {
-    if (e.target === popup.parentElement) {
-      closeDebugUI();
-    }
+  popup.addEventListener('click', (e) => {
+    if (e.target === popup && currentPopup === popup) closeDebugUI();
   });
 
   // ✅ 监听重roll结束事件和AI生成完成事件，同步调试界面按钮状态
@@ -344,6 +363,7 @@ function bindDebugEvents(popup, contactId) {
       rerollBtn.textContent = '重roll';
       logger.debug('phone','[Debug] 收到重roll结束事件，恢复按钮状态');
     }
+    popupShells.get(popup)?.syncControls();
   };
 
   const handleAIGenerationComplete = (e) => {
@@ -355,6 +375,7 @@ function bindDebugEvents(popup, contactId) {
       rerollBtn.textContent = '重roll';
       logger.debug('phone','[Debug] 收到AI生成完成事件，恢复按钮状态');
     }
+    popupShells.get(popup)?.syncControls();
   };
 
   const handleAIGenerationError = (e) => {
@@ -366,6 +387,7 @@ function bindDebugEvents(popup, contactId) {
       rerollBtn.textContent = '重roll';
       logger.debug('phone','[Debug] 收到AI生成错误事件，恢复按钮状态');
     }
+    popupShells.get(popup)?.syncControls();
   };
 
   registerListener('message-debug', 'phone-debug-reroll-end', handleRerollEnd, {
@@ -378,19 +400,7 @@ function bindDebugEvents(popup, contactId) {
     description: 'AI生成错误后恢复按钮状态'
   });
 
-  // 弹窗关闭时清理监听器
-  const originalClose = closeDebugUI;
-  const cleanupAndClose = () => {
-    destroyPageListeners('message-debug');
-    originalClose();
-  };
-
-  // 临时替换关闭函数（确保清理监听器）
-  const closeBtnForCleanup = popup.querySelector('.debug-close-btn');
-  if (closeBtnForCleanup) {
-    closeBtnForCleanup.removeEventListener('click', closeDebugUI);
-    closeBtnForCleanup.addEventListener('click', cleanupAndClose);
-  }
+  // 关闭的忙态保护及监听清理由 closeDebugUI 统一处理。
 }
 
 // ========================================
@@ -420,8 +430,9 @@ async function handleCompare(popup, contactId) {
     leftContainer.className = 'debug-compare-left';
     leftContainer.innerHTML = `
             <div class="debug-compare-label">【正确示例】</div>
-            <textarea class="debug-textarea debug-textarea-readonly" readonly style="font-size: ${currentFontSize}px;">${await getExampleTemplate(contactId)}</textarea>
+            <textarea class="debug-textarea debug-textarea-readonly" readonly style="font-size: ${currentFontSize}px;"></textarea>
         `;
+    leftContainer.querySelector('textarea').value = await getExampleTemplate(contactId);
 
     // 右侧：AI返回
     const rightContainer = document.createElement('div');
@@ -429,9 +440,10 @@ async function handleCompare(popup, contactId) {
     rightContainer.innerHTML = `
             <div class="debug-compare-label">【AI返回】</div>
             <div class="debug-textarea-container">
-                <textarea class="debug-textarea" style="font-size: ${currentFontSize}px;">${currentVersion.text}</textarea>
+                <textarea class="debug-textarea" style="font-size: ${currentFontSize}px;"></textarea>
             </div>
         `;
+    rightContainer.querySelector('textarea').value = currentVersion.text;
 
     // 版本指示器（如果有多个版本）
     if (state.versions.length > 1) {
@@ -473,6 +485,7 @@ async function handleCompare(popup, contactId) {
 
     popup.querySelector('.debug-compare-btn').classList.remove('active');
   }
+  popupShells.get(popup)?.syncControls();
 }
 
 /**
@@ -511,7 +524,7 @@ async function handleValidate(popup, contactId) {
   if (result.ok) {
     toastr.success(result.message);
   } else {
-    toastr.error(result.errors.join('\n'), '格式检查', { timeOut: 5000 });
+    toastr.error(result.errors.join('\n'), '格式检查', { timeOut: 5000, escapeHtml: true });
   }
 }
 
@@ -591,7 +604,6 @@ async function handleReapply(popup, contactId) {
 
   try {
     await rollbackAndReparse(contactId, newText);
-    closeDebugUI();
 
     const toastr = window.toastr;
     if (toastr) {
@@ -601,8 +613,9 @@ async function handleReapply(popup, contactId) {
     logger.error('phone','[Debug] 重新应用失败:', error);
     const toastr = window.toastr;
     if (toastr) {
-      toastr.error(`重新应用失败: ${error.message}`);
+      toastr.error('重新应用未完成；若写入结果不明，请先备份后刷新。');
     }
+    throw error;
   }
 }
 
@@ -719,7 +732,7 @@ async function handleReroll(popup, contactId) {
 
         const toastr = window.toastr;
         if (toastr) {
-          toastr.error(`重roll失败: ${error}`);
+          toastr.error(`重roll失败: ${error}`, '重roll', { escapeHtml: true });
         }
       },
       // ✅ 可选参数：从快照恢复多联系人消息（用于多角色触发）
@@ -738,7 +751,7 @@ async function handleReroll(popup, contactId) {
 
     const toastr = window.toastr;
     if (toastr) {
-      toastr.error(`重roll失败: ${error.message}`);
+      toastr.error(`重roll失败: ${error.message}`, '重roll', { escapeHtml: true });
     }
   }
 }
@@ -806,6 +819,7 @@ function updateDebugUI(popup, contactId) {
   if (nextBtn) {
     nextBtn.disabled = state.currentIndex === state.versions.length - 1;
   }
+  popupShells.get(popup)?.syncControls();
 }
 
 // ========================================
@@ -827,6 +841,8 @@ function updateDebugUI(popup, contactId) {
  * @param {string} newText - 新的文本
  */
 async function rollbackAndReparse(contactId, newText) {
+  newText = splitCharacterExtras(newText).text;
+  if (!validateAIResponse(newText)) throw new Error('缺少完整的普通聊天格式；只有正文请使用补录页，不回退原记录。');
   logger.info('phone','📝 [重新应用] ========== 开始重新应用 ==========');
   logger.info('phone','📝 [重新应用] 联系人:', contactId);
   logger.debug('phone','📝 [重新应用] 新文本长度:', newText.length);
@@ -866,7 +882,7 @@ async function rollbackAndReparse(contactId, newText) {
 
   const page = findActiveChatPage(contactId);
   for (const msg of parsed) {
-    await saveChatMessage(contactId, msg);
+    await saveChatMessage(contactId, msg, { strict: true });
     logger.debug('phone','📝 [重新应用] 已保存消息:', msg.type, msg.id);
 
     if (page) {
@@ -895,8 +911,8 @@ async function rollbackAndReparse(contactId, newText) {
  */
 async function rollbackToSnapshot(contactId) {
   const state = debugStates.get(contactId);
-  if (!state) {
-    throw new Error('未找到调试状态');
+  if (!state?.hasSnapshot || !Number.isSafeInteger(state.snapshot?.messageCount) || state.snapshot.messageCount < 0) {
+    throw new Error('没有真实可用的发送前快照，不能回退；请使用补录页。');
   }
 
   const { snapshot } = state;
@@ -910,6 +926,7 @@ async function rollbackToSnapshot(contactId) {
   // ========================================
   const chatHistory = await loadChatHistory(contactId);
   logger.debug('phone','🔄 [回退前] 数据层消息总数:', chatHistory.length);
+  if (snapshot.messageCount > chatHistory.length) throw new Error('聊天已变化，旧快照不能回退。');
 
   // 提取快照后的消息
   const beforeSnapshot = chatHistory.slice(0, snapshot.messageCount);

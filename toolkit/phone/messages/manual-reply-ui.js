@@ -6,35 +6,56 @@ import { getContactDisplayName } from '../utils/contact-display-helper.js';
 // 写入结果不明时，离开再打开页面也不能绕过保护；刷新后由后端查重。
 const faultedContacts = new Set();
 
-/** @returns {Promise<DocumentFragment>} 自带顶部栏，由路由提供外层 phone-page。 */
-export async function renderManualReplyPage({ contactId }) {
+/** 兼容已有独立路由；自带顶部栏，由路由提供外层 phone-page。 */
+export async function renderManualReplyPage(params) {
+  const { fragment } = await renderManualReplyCore(params, true);
+  return fragment;
+}
+
+/**
+ * 嵌入 AI 消息调试；不创建独立页面，也不自动预览或保存。
+ * 状态回调在初次同步及 busy/faulted/saved 变化时触发，不包含正文。
+ */
+export async function renderManualReplyPanel({ contactId, initialText = '', initialTime, onStateChange }) {
+  return renderManualReplyCore({ contactId, initialText, initialTime, onStateChange });
+}
+
+async function renderManualReplyCore({ contactId, initialText = '', initialTime, onStateChange }, standalone = false) {
   const fragment = document.createDocumentFragment();
-  const page = element('div', 'chat-settings-page manual-reply-page');
+  const page = element('div', standalone ?
+    'chat-settings-page manual-reply-ui manual-reply-page' : 'manual-reply-ui manual-reply-panel');
   const style = element('style');
   style.textContent = `
-    .manual-reply-page { color:var(--phone-text-primary); min-height:0; }
-    .manual-reply-page .manual-reply-content { padding:12px; min-height:0; }
-    .manual-reply-page .manual-reply-card { padding:12px; margin:0 0 12px; border:1px solid var(--phone-border); border-radius:8px; background:var(--phone-bg-card,var(--phone-bg-white)); }
-    .manual-reply-page .manual-reply-note { margin:8px 0; font-size:12px; line-height:1.7; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--phone-text-secondary); }
-    .manual-reply-page .manual-reply-heading { margin:0 0 10px; font-size:15px; }
-    .manual-reply-page textarea, .manual-reply-page input[type="datetime-local"] { display:block; width:100%; box-sizing:border-box; padding:10px; margin:8px 0 12px; border:1px solid var(--phone-border); border-radius:6px; background:var(--phone-field-bg,var(--phone-bg-white)); color:var(--phone-field-text,var(--phone-text-primary)); font:inherit; }
-    .manual-reply-page textarea { min-height:180px; resize:vertical; line-height:1.6; }
-    .manual-reply-page .manual-reply-check { display:flex; align-items:flex-start; gap:8px; line-height:1.7; font-size:13px; }
-    .manual-reply-page input[type="checkbox"] { accent-color:var(--phone-primary); flex-shrink:0; margin-top:5px; }
-    .manual-reply-page .manual-reply-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
-    .manual-reply-page .manual-reply-button { padding:8px 12px; border:1px solid var(--phone-border); border-radius:6px; background:var(--phone-bg-main); color:var(--phone-text-primary); font:inherit; cursor:pointer; }
-    .manual-reply-page .manual-reply-body { margin:10px 0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; }
-    .manual-reply-page .manual-reply-error { color:var(--phone-danger,var(--phone-text-primary)); }
-    .manual-reply-page button:disabled, .manual-reply-page input:disabled { opacity:.55; cursor:default; }
-    .manual-reply-page :is(button,textarea,input):focus-visible { outline:2px solid var(--phone-primary); outline-offset:3px; }
-    .manual-reply-page [hidden] { display:none !important; }
+    .manual-reply-ui { color:var(--phone-text-primary); min-height:0; }
+    .manual-reply-panel { display:flex; flex-direction:column; flex:1 1 auto; height:100%; min-width:0; overflow:hidden; }
+    .manual-reply-ui .manual-reply-content { padding:12px; min-height:0; }
+    .manual-reply-panel .manual-reply-content { flex:1 1 0; overflow-y:auto; overscroll-behavior:contain; }
+    .manual-reply-ui .manual-reply-card { padding:12px; margin:0 0 12px; border:1px solid var(--phone-border); border-radius:8px; background:var(--phone-bg-card,var(--phone-bg-white)); }
+    .manual-reply-ui .manual-reply-note { margin:8px 0; font-size:12px; line-height:1.7; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--phone-text-secondary); }
+    .manual-reply-ui .manual-reply-heading { margin:0 0 10px; font-size:15px; }
+    .manual-reply-ui textarea, .manual-reply-ui input[type="datetime-local"] { display:block; width:100%; box-sizing:border-box; padding:10px; margin:8px 0 12px; border:1px solid var(--phone-border); border-radius:6px; background:var(--phone-field-bg,var(--phone-bg-white)); color:var(--phone-field-text,var(--phone-text-primary)); font:inherit; }
+    .manual-reply-ui textarea { min-height:180px; resize:vertical; line-height:1.6; }
+    .manual-reply-ui .manual-reply-check { display:flex; align-items:flex-start; gap:8px; line-height:1.7; font-size:13px; }
+    .manual-reply-ui input[type="checkbox"] { accent-color:var(--phone-primary); flex-shrink:0; margin-top:5px; }
+    .manual-reply-ui .manual-reply-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+    .manual-reply-ui .manual-reply-button { padding:8px 12px; border:1px solid var(--phone-border); border-radius:6px; background:var(--phone-bg-main); color:var(--phone-text-primary); font:inherit; cursor:pointer; }
+    .manual-reply-ui .manual-reply-body { margin:10px 0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; }
+    .manual-reply-ui .manual-reply-error { color:var(--phone-danger,var(--phone-text-primary)); }
+    .manual-reply-ui button:disabled, .manual-reply-ui input:disabled { opacity:.55; cursor:default; }
+    .manual-reply-ui :is(button,textarea,input):focus-visible { outline:2px solid var(--phone-primary); outline-offset:3px; }
+    .manual-reply-ui [hidden] { display:none !important; }
   `;
   page.appendChild(style);
-  const topbar = element('div', 'chat-settings-topbar');
-  const back = button('‹', 'chat-settings-back-btn');
-  back.setAttribute('aria-label', '返回聊天设置');
-  topbar.append(back, element('div', 'chat-settings-title', '补录角色回复'));
-  const content = element('div', 'chat-settings-content manual-reply-content');
+  let back = null;
+  if (standalone) {
+    const topbar = element('div', 'chat-settings-topbar');
+    back = button('‹', 'chat-settings-back-btn');
+    back.setAttribute('aria-label', '返回聊天设置');
+    topbar.append(back, element('div', 'chat-settings-title', '补录角色回复'));
+    page.appendChild(topbar);
+  }
+  const content = element('div', standalone ?
+    'chat-settings-content manual-reply-content' : 'manual-reply-content');
   content.appendChild(element('p', 'manual-reply-note',
     '只粘贴日志中的角色最终回复，不要粘贴整份 API 请求、日志、密钥或凭据。此功能不调用 AI，不重新生成。\n只补录为一条纯文本聊天气泡，不执行钱包、好友、计划等操作；sidecar／小剧场与 think 思考块会隔离，不导入聊天。'));
 
@@ -53,6 +74,7 @@ export async function renderManualReplyPage({ contactId }) {
   source.rows = 9;
   source.spellcheck = false;
   source.autocomplete = 'off';
+  source.value = String(initialText ?? '');
   source.setAttribute('aria-label', '粘贴角色最终回复纯文本');
   sourceLabel.appendChild(source);
   const timeLabel = element('label', '', '消息时间（当前设备本地时间）');
@@ -60,7 +82,7 @@ export async function renderManualReplyPage({ contactId }) {
   time.type = 'datetime-local';
   time.step = '1';
   time.required = true;
-  time.value = localDateTimeNow();
+  time.value = localDateTimeFromSeconds(initialTime) || localDateTimeNow();
   timeLabel.appendChild(time);
   const proactiveLabel = element('label', 'manual-reply-check');
   const proactive = element('input');
@@ -91,7 +113,7 @@ export async function renderManualReplyPage({ contactId }) {
   const confirmation = element('section', 'manual-reply-card');
   confirmation.hidden = true;
   content.append(form, previewSection, confirmation, status);
-  page.append(topbar, content);
+  page.appendChild(content);
   fragment.appendChild(page);
 
   let busy = false;
@@ -100,6 +122,7 @@ export async function renderManualReplyPage({ contactId }) {
   let revision = 0;
   let preview = null;
   let previewInput = null;
+  let lastState = null;
 
   function setStatus(text, error = false) {
     status.textContent = text;
@@ -119,7 +142,7 @@ export async function renderManualReplyPage({ contactId }) {
 
   function syncControls() {
     page.setAttribute('aria-busy', String(busy));
-    back.disabled = busy;
+    if (back) back.disabled = busy;
     // 即使发生写入故障也保持原文可选择、复制，不能 disabled。
     source.readOnly = busy || faulted || saved;
     time.disabled = busy || faulted || saved;
@@ -128,6 +151,13 @@ export async function renderManualReplyPage({ contactId }) {
     previewButton.disabled = busy || faulted || saved || !source.value.trim() || !time.value;
     saveButton.disabled = busy || faulted || saved || !previewIsCurrent() ||
       Boolean(preview?.duplicate && !allowDuplicate.checked);
+    if (!lastState || lastState.busy !== busy || lastState.faulted !== faulted || lastState.saved !== saved) {
+      lastState = { busy, faulted, saved };
+      // 宿主观察器不能打断控件锁定、确认或结果不明保护；不向外传正文。
+      if (typeof onStateChange === 'function') {
+        try { onStateChange({ ...lastState }); } catch { /* 初次渲染时宿主可能尚未取得面板。 */ }
+      }
+    }
   }
 
   function invalidatePreview() {
@@ -142,13 +172,23 @@ export async function renderManualReplyPage({ contactId }) {
     syncControls();
   }
 
+  function setSourceText(text, { time: seconds, replace = false } = {}) {
+    if (busy || faulted || saved || typeof text !== 'string') return false;
+    if (replace !== true && source.value.length > 0 && source.value !== text) return false;
+    source.value = text;
+    const localTime = localDateTimeFromSeconds(seconds);
+    if (localTime) time.value = localTime;
+    invalidatePreview();
+    return true;
+  }
+
   for (const control of [source, time, proactive]) {
     control.addEventListener('input', invalidatePreview);
     control.addEventListener('change', invalidatePreview);
   }
   allowDuplicate.addEventListener('change', syncControls);
 
-  back.addEventListener('click', async () => {
+  back?.addEventListener('click', async () => {
     if (busy) return;
     busy = true;
     syncControls();
@@ -286,7 +326,13 @@ export async function renderManualReplyPage({ contactId }) {
 
   if (faulted) setStatus('此前保存结果不明，结果可能已写入，勿重复补录。请先导出手机备份再刷新；本页已停止预览和保存。', true);
   syncControls();
-  return fragment;
+  return {
+    fragment,
+    setSourceText,
+    hasDraft: () => source.value.length > 0,
+    isBusy: () => busy,
+    isFaulted: () => faulted,
+  };
 }
 
 function element(tag, className = '', text) {
@@ -303,9 +349,15 @@ function button(text, className = 'manual-reply-button') {
 }
 
 function localDateTimeNow() {
-  const now = new Date();
+  return localDateTimeFromSeconds(Date.now() / 1000);
+}
+
+function localDateTimeFromSeconds(seconds) {
+  if (!Number.isFinite(seconds)) return '';
+  const date = new Date(seconds * 1000);
+  if (!Number.isFinite(date.getTime())) return '';
   const pad = value => String(value).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  return `${String(date.getFullYear()).padStart(4, '0')}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 function formatTime(seconds) {

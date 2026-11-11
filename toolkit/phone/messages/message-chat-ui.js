@@ -161,7 +161,7 @@ function createInputArea() {
             <button class="chat-voice-btn"><i class="fa-solid fa-microphone"></i></button>
             <button class="chat-camera-btn" title="拍照"><i class="fa-solid fa-camera"></i></button>
             <button class="chat-plan-list-btn" title="约定计划列表"><i class="fa-solid fa-clipboard-list"></i></button>
-            <button class="chat-debug-btn" title="AI消息调试"><i class="fa-solid fa-robot"></i></button>
+            <button class="chat-debug-btn" title="调用调试 / 补录回复" aria-label="调用调试与补录角色回复"><i class="fa-solid fa-robot"></i></button>
             <button class="chat-emoji-btn"><i class="fa-solid fa-face-smile"></i></button>
             <button class="chat-plus-btn"><i class="fa-solid fa-circle-plus"></i></button>
         </div>

@@ -408,7 +408,7 @@ function checkIfParamsChanged(pageElement, newParams, pageName) {
   }
 
   // 收藏列表页每次显示时都刷新（数据可能已变化）
-  if (pageName === 'favorites-list' || pageName === 'chat-diary' || pageName === 'proactive-settings' || pageName === 'character-extras' || pageName === 'manual-reply') {
+  if (pageName === 'favorites-list' || pageName === 'chat-diary' || pageName === 'proactive-settings' || pageName === 'character-extras') {
     logger.debug('phone','[PhoneUI.checkIfParamsChanged] 收藏列表页，需要刷新');
     return true;
   }
@@ -768,6 +768,14 @@ export async function showPage(overlayElement, pageName, params = {}) {
   logger.info('phone','[PhoneUI.showPage] 显示页面:', pageName, '参数:', params);
 
   try {
+    // 旧补录路由只作为调用调试的别名，不再创建第二套页面。
+    if (pageName === 'manual-reply') {
+      if (params.contactId) {
+        const { openDebugUI } = await import('./messages/message-debug-ui.js');
+        await openDebugUI(params.contactId, { tab: 'recovery' });
+      }
+      return;
+    }
     // 生成实际的DOM ID（聊天页和转账页使用动态ID，每个联系人独立DOM）
     // 注意：将contactId中的特殊字符（空格、特殊符号）转为下划线，避免querySelector失败
     const pageId = ((pageName === 'chat' || pageName === 'transfer') && params.contactId)
@@ -1218,16 +1226,6 @@ async function refreshPageContent(pageName, params = {}) {
         }
       }
       break;
-
-    case 'manual-reply': {
-      const page = document.querySelector('#page-manual-reply');
-      if (page && params.contactId) {
-        const { renderManualReplyPage } = await import('./messages/manual-reply-ui.js');
-        page.replaceChildren(await renderManualReplyPage(params));
-        page.dataset.contactId = params.contactId;
-      }
-      break;
-    }
 
     case 'character-extras': {
       const page = document.querySelector('#page-character-extras');
@@ -1752,17 +1750,6 @@ async function createPage(pageName, params = {}) {
         groupManagePage.classList.add('phone-page-scrollable');
       }
       return groupManagePage;
-
-    case 'manual-reply': {
-      if (!params.contactId) return null;
-      const { renderManualReplyPage } = await import('./messages/manual-reply-ui.js');
-      const page = document.createElement('div');
-      page.id = 'page-manual-reply';
-      page.className = 'phone-page phone-page-fixed';
-      page.dataset.contactId = params.contactId;
-      page.appendChild(await renderManualReplyPage(params));
-      return page;
-    }
 
     case 'character-extras': {
       if (!params.contactId) return null;
