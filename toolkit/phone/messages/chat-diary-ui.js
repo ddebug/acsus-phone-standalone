@@ -1,8 +1,9 @@
-/** 聊天日记：可编辑提示词、按日多选及聊天文本 token 估算。 */
+/** 聊天日记：可编辑提示词与逐篇日记正文、按日多选及聊天文本 token 估算。 */
 import logger from '../../../logger.js';
 import {
   DIARY_SKIP_THRESHOLD, getDiaryDayStatuses, loadDiaryEntries, removeDiaryEntry, getLocalDateKey,
   isDiaryEnabled, setDiaryEnabled, setDiaryUseOriginal, getDiaryPrompt, setDiaryPrompt, DEFAULT_DIARY_PROMPT,
+  upsertDiaryEntry,
 } from './chat-diary-data.js';
 import { loadChatHistory } from './message-chat-data.js';
 import { generateDiaries, getDiaryTokenCounts, getDiarySummaryTokenCounts } from '../ai-integration/chat-diary-summarizer.js';
@@ -12,6 +13,8 @@ import { showSuccessToast, showErrorToast } from '../ui-components/toast-notific
 
 let busy = false;
 let promptDraft = null; // 页面重开仍保留尚未保存的编辑；刷新宿主前请点击保存。
+// 未保存的日记正文草稿（按“联系人|日期”存放），列表重绘或重开页面时按草稿回到编辑态，避免静默丢弃输入。
+const entryDrafts = new Map();
 const views = new WeakMap();
 
 export async function renderChatDiaryPage({ contactId }) {
@@ -42,6 +45,7 @@ export async function renderChatDiaryPage({ contactId }) {
         </details>
         <div style="font-size:12px;line-height:1.6;opacity:.8;">选日期决定写哪几天，不限制背景：每次生成仍带角色资料和该联系人的全部未排除原始历史，且只发送一次模型生成请求。每天 ≤${DIARY_SKIP_THRESHOLD} 条跳过。</div>
         <div style="font-size:12px;line-height:1.6;opacity:.8;">“原文”token 是当天未排除聊天文本估算，“总结”token 是已保存日记正文估算，生成后会重新统计。均不含角色卡、总结提示词、请求包装或图片视觉 token，不等于实际计费。统计会调用宿主分词接口，不生成回复。</div>
+        <div style="font-size:12px;line-height:1.6;opacity:.8;">已有日记可点“编辑正文”直接改写；保存后立刻用于替换该日上下文并重算 token，不改原始聊天，也不改变“本日上下文使用原文”的选择，不会调用模型。</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button type="button" data-role="generate-selected">总结勾选日期</button>
           <button type="button" data-role="select-pending">勾选全部待总结</button>
@@ -211,7 +215,11 @@ async function runGenerate(ui, options) {
         setStatus(ui, `${label}（${info.total} 天）\n${(info.dates || []).join('、')}`);
       },
     });
-    for (const date of result.updated) ui.selected.delete(date);
+    // 重写过的日期以新生成的正文为准，丢掉这一天残留的手改草稿。
+    for (const date of result.updated) {
+      ui.selected.delete(date);
+      entryDrafts.delete(`${ui.contactId}|${date}`);
+    }
     const lines = [];
     if (result.updated.length) { lines.push(`已生成：${result.updated.join('、')}`); showSuccessToast(`已生成 ${result.updated.length} 天日记`); }
     if (result.skipped.length) lines.push(`≤${DIARY_SKIP_THRESHOLD} 条，跳过：${result.skipped.join('、')}`);
@@ -228,6 +236,13 @@ async function refreshView(ui) {
   try {
     const messages = await loadChatHistory(ui.contactId);
     ui.entries = loadDiaryEntries(ui.contactId);
+    // 已不存在的日期不再保留草稿；它们不会因为重绘被谁看到。
+    const draftPrefix = `${ui.contactId}|`;
+    for (const key of entryDrafts.keys()) {
+      if (key.startsWith(draftPrefix) && !ui.entries.some(entry => key === `${draftPrefix}${entry.date}`)) {
+        entryDrafts.delete(key);
+      }
+    }
     ui.lastDayKey = getLocalDateKey(messages.filter(message => !message.excluded).at(-1)?.time);
     ui.statuses = getDiaryDayStatuses(messages, ui.entries);
     ui.messagesByDate.clear();
@@ -374,9 +389,15 @@ function renderEntries(ui) {
   const heading = document.createElement('strong');
   heading.textContent = `已有日记（${ui.entries.length} 天）`;
   ui.list.appendChild(heading);
+  const note = document.createElement('p');
+  note.style.cssText = 'font-size:12px;line-height:1.6;opacity:.8;margin:6px 0 0;';
+  note.textContent = '展开某一天可以修改正文；保存只写日记，不动原始聊天和“本日上下文使用原文”的选择。';
+  ui.list.appendChild(note);
   for (const entry of [...ui.entries].reverse()) {
     const item = document.createElement('details');
     item.style.cssText = 'background:var(--phone-bg-card,#fff);border-radius:8px;padding:10px;margin-top:8px;';
+    // 有未保存草稿时默认展开，重绘后编辑框才看得见，不会像丢了输入。
+    item.open = entryDrafts.has(`${ui.contactId}|${entry.date}`);
     const summary = document.createElement('summary');
     summary.appendChild(document.createTextNode(`${entry.date} · `));
     summary.appendChild(createTokenNode(ui, entry.date, true));
@@ -402,23 +423,166 @@ function renderEntries(ui) {
     });
     useOriginalLabel.append(useOriginal, document.createTextNode('本日上下文使用原文（保留总结）'));
     item.appendChild(useOriginalLabel);
-    const body = document.createElement('div');
-    body.style.cssText = 'white-space:pre-wrap;line-height:1.6;font-size:13px;margin:8px 0;';
-    body.textContent = entry.content;
-    item.appendChild(body);
-    item.appendChild(renderOriginal(ui, entry.date));
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = '删除这篇日记（保留原聊天）';
-    button.addEventListener('click', () => void runAction(ui, async () => {
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.textContent = '删除这篇日记（保留原聊天）';
+    removeButton.addEventListener('click', () => void runAction(ui, async () => {
       const confirmed = await showConfirmPopup('删除日记', `删除 ${entry.date} 的日记？不会删除原始聊天。`, { okButton: '删除', danger: true });
       if (!confirmed) return;
       await removeDiaryEntry(ui.contactId, entry.date);
+      entryDrafts.delete(`${ui.contactId}|${entry.date}`);
       setStatus(ui, `${entry.date} 的日记已删除，原始聊天保留。`);
     }, { refresh: true }));
-    item.appendChild(button);
+    item.appendChild(createEntryEditor(ui, entry, removeButton));
+    item.appendChild(renderOriginal(ui, entry.date));
     ui.list.appendChild(item);
   }
+}
+
+function createActionButton(text) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = text;
+  return button;
+}
+
+/** 缺失的时间/条数不要变成 0：Number(null) === 0，会把旧日记记成 1970 年、0 条。 */
+function diaryNumber(value) {
+  if (value === null || value === undefined || value === '') return undefined;
+  return Number.isFinite(Number(value)) ? Number(value) : undefined;
+}
+
+/**
+ * 已有日记的手动编辑区。
+ *
+ * 只改正文：源记录指纹、`fromTime/toTime/messageCount`、`useOriginal` 都原样带回，
+ * 所以保存后这一天仍按“已总结”替换上下文，也不会偷偷恢复原文。
+ * 未保存的草稿放在 `entryDrafts`，列表重绘或重新打开页面时按草稿回到编辑态。
+ */
+function createEntryEditor(ui, entry, removeButton) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'margin:8px 0;';
+  const view = document.createElement('div');
+  view.style.cssText = 'white-space:pre-wrap;line-height:1.6;font-size:13px;';
+  view.textContent = entry.content;
+  const editor = document.createElement('textarea');
+  editor.rows = 10;
+  editor.setAttribute('aria-label', `${entry.date} 日记正文编辑框`);
+  editor.style.cssText = 'display:none;width:100%;box-sizing:border-box;resize:vertical;min-height:180px;font:inherit;line-height:1.6;';
+  const hint = document.createElement('div');
+  hint.style.cssText = 'font-size:12px;opacity:.8;margin-top:6px;';
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;';
+  const editButton = createActionButton('编辑正文');
+  const saveButton = createActionButton('保存修改');
+  const cancelButton = createActionButton('取消编辑');
+  saveButton.style.display = 'none';
+  cancelButton.style.display = 'none';
+  actions.append(editButton, saveButton, cancelButton, removeButton);
+  wrap.append(view, editor, hint, actions);
+
+  const draftKey = `${ui.contactId}|${entry.date}`;
+  let editing = false;
+
+  const syncSaveState = () => {
+    const empty = !editor.value.trim();
+    saveButton.dataset.unavailable = String(empty);
+    saveButton.disabled = empty || busy || ui.loading;
+    saveButton.title = empty ? '正文不能为空' : '保存修改';
+    if (!editing) { hint.textContent = ''; return; }
+    hint.textContent = editor.value === entry.content
+      ? '正文还没有改动；保存不会写入，也不会重新统计 token。'
+      : '有未保存的修改，换页面或列表重绘都会保留草稿；保存后按新正文替换该日上下文（勾选了“使用原文”的日子除外）。';
+  };
+
+  const setEditing = on => {
+    editing = on;
+    view.style.display = on ? 'none' : '';
+    editor.style.display = on ? '' : 'none';
+    editButton.style.display = on ? 'none' : '';
+    saveButton.style.display = on ? '' : 'none';
+    cancelButton.style.display = on ? 'none' : '';
+    // 编辑期间藏起删除，避免改到一半误删。
+    removeButton.style.display = on ? 'none' : '';
+    if (on) {
+      editor.value = entryDrafts.get(draftKey) ?? entry.content;
+      editor.focus();
+      editor.setSelectionRange(editor.value.length, editor.value.length);
+    } else {
+      entryDrafts.delete(draftKey);
+      editor.value = entry.content;
+    }
+    syncSaveState();
+  };
+
+  async function saveEntry() {
+    await runAction(ui, async () => {
+      const text = editor.value.trim();
+      if (!text) {
+        setStatus(ui, `${entry.date}：正文为空，未保存。`);
+        showErrorToast('日记正文不能为空');
+        return;
+      }
+      if (text === entry.content) {
+        setEditing(false);
+        syncControls(ui);
+        setStatus(ui, `${entry.date}：正文没有改动，未写入。`);
+        return;
+      }
+      // 手动改写不重新生成，只把新正文写回同一个日期；指纹沿用以保持“已总结”。
+      const saved = await upsertDiaryEntry(ui.contactId, {
+        date: entry.date,
+        content: text,
+        // 缺失的时间/条数保持缺失；Number(null) 会变成 0，那会把旧日记写成“1970 年、0 条”。
+        fromTime: diaryNumber(entry.fromTime),
+        toTime: diaryNumber(entry.toTime),
+        messageCount: diaryNumber(entry.messageCount),
+        sourceFingerprint: entry.sourceFingerprint || '',
+      });
+      Object.assign(entry, saved);
+      view.textContent = saved.content;
+      setEditing(false);
+      syncControls(ui);
+      recountSummaryTokens(ui, entry.date);
+      setStatus(ui, `${entry.date} 的日记已保存；原始聊天未改动。${entry.useOriginal === true
+        ? '本日仍勾选“使用原文”，新正文暂不替换上下文。'
+        : '新正文会立即用于替换该日上下文。'}`);
+      showSuccessToast(`${entry.date} 的日记已保存`);
+    });
+  }
+
+  editButton.addEventListener('click', () => {
+    if (busy || ui.loading) return;
+    setEditing(true);
+    syncControls(ui);
+  });
+  cancelButton.addEventListener('click', () => {
+    if (busy || ui.loading) return;
+    setEditing(false);
+    syncControls(ui);
+    setStatus(ui, `${entry.date}：已取消编辑，正文保持原样。`);
+  });
+  saveButton.addEventListener('click', () => {
+    if (busy || ui.loading || !editor.value.trim()) return;
+    void saveEntry();
+  });
+  editor.addEventListener('input', () => {
+    if (editor.value === entry.content) entryDrafts.delete(draftKey);
+    else entryDrafts.set(draftKey, editor.value);
+    syncSaveState();
+  });
+
+  if (entryDrafts.has(draftKey)) setEditing(true);
+  else syncSaveState();
+  return wrap;
+}
+
+/** 正文变了才重算这一天；旧正文的缓存键不会命中，其他日期不受影响。 */
+function recountSummaryTokens(ui, date) {
+  ui.summaryTokens.delete(date);
+  ui.summaryTokensFailed = false;
+  for (const node of ui.summaryTokenNodes.get(date) || []) node.textContent = tokenText(ui, date, true);
+  startTokenCounts(ui, ui.tokenRun, true);
 }
 
 function originalMessageText(message, depth = 0) {
