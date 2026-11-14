@@ -52,6 +52,14 @@ function extractText(raw, contact) {
     || /\b(?:proxy-authorization|authorization|x-(?:goog-)?api-key|api[_ -]?key)\b["']?\s*[:=]/i.test(text)) {
     throw new Error('这看起来是 API 日志或结构化数据。请只复制最终回复正文，不要复制请求、密钥或思考过程。');
   }
+  // Some host logs put the message-region marker before the role tag, e.g.
+  // [消息] / [角色-X] / text. Treat that leading marker as a wrapper, not as
+  // content before the role label.
+  const leadingMessage = text.match(/^\s*\[消息\]\s*/);
+  if (leadingMessage) {
+    text = text.slice(leadingMessage[0].length);
+    warnings.push('开头的 [消息] 标签已去除。');
+  }
   const roles = [...text.matchAll(/\[角色-([^\]]+)\]/g)];
   if (roles.length) {
     const roleNames = [...new Set(roles.map(match => match[1].trim()).filter(Boolean))];
@@ -73,7 +81,10 @@ function extractText(raw, contact) {
     } else {
       // A log may omit [消息] while still carrying a role envelope. Keep the
       // body when it is plain text; bare labels are rejected below.
-      text = bodies.map(body => body.replace(/\[\/角色-[^\]]*\]\s*$/, '').trim()).filter(Boolean).join('\n');
+      text = bodies.map(body => body
+        .replace(/\[\/消息\]\s*/g, '')
+        .replace(/\[\/角色-[^\]]*\]\s*$/, '')
+        .trim()).filter(Boolean).join('\n');
       if (!text) throw new Error('未找到普通消息正文，请只复制消息里的文字。');
       warnings.push('角色标签已去除；预览内容会保存为一条文字气泡。');
     }
