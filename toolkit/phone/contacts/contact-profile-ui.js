@@ -133,16 +133,7 @@ function createMainCard(contact) {
   // 3. 个性签名行
   card.appendChild(createSignatureRow(contact));
 
-  // 4. 互动标识区
-  card.appendChild(createInteractionBadges(contact));
-
-  // 4. QQ空间入口
-  card.appendChild(createQZoneEntry(contact));
-
-  // 5. 精选照片区
-  card.appendChild(createPhotoGallery(contact));
-
-  // 6. 底部三个按钮
+  // 4. 底部按钮
   card.appendChild(createBottomButtons(contact));
 
   return card;
@@ -172,10 +163,6 @@ function createBasicInfo(contact) {
         <div class="contact-profile-info-text" data-contact-id="${contact.id}">
             <div class="contact-profile-name">${displayName}</div>
             ${showNickname ? `<div class="contact-profile-nickname">昵称：${contact.name}</div>` : ''}
-        </div>
-        <div class="contact-profile-likes">
-            <i class="fa-solid fa-thumbs-up"></i>
-            <span>0</span>
         </div>
     `;
 
@@ -230,16 +217,11 @@ function createBadges(contact) {
     badgesDiv.style.opacity = '1';
     badgesDiv.style.cursor = 'pointer';
   } else {
-    // 暂时不可点击
-    badgesDiv.style.opacity = '0.6';
-    badgesDiv.style.cursor = 'default';
+    // 没有会员徽章时不显示这一行，避免只剩一个空箭头
+    badgesDiv.style.display = 'none';
+    return badgesDiv;
   }
-  
-  // 添加等级星标（TODO: 后期对接等级系统）
-  const levelStar = document.createElement('span');
-  levelStar.textContent = '⭐';
-  badgeItem.appendChild(levelStar);
-  
+
   badgesDiv.appendChild(badgeItem);
   
   // 添加箭头
@@ -294,86 +276,7 @@ async function handleOpenSignatureHistory(contactId) {
 }
 
 /**
- * 创建互动标识区
- * 
- * @param {Object} contact - 联系人对象
- * @returns {HTMLElement} 互动标识容器
- */
-function createInteractionBadges(contact) {
-  const interactionDiv = document.createElement('div');
-  interactionDiv.className = 'contact-profile-interaction';
-
-  // TODO: 后期实现"聊天多→心心多"的emoji系统
-  interactionDiv.innerHTML = `
-        <div class="contact-profile-interaction-header">
-            <i class="fa-solid fa-gear"></i>
-            <span>你们的互动标识</span>
-            <i class="fa-solid fa-chevron-right"></i>
-        </div>
-    `;
-
-  // 暂时不可点击
-  interactionDiv.style.opacity = '0.6';
-  interactionDiv.style.cursor = 'default';
-
-  return interactionDiv;
-}
-
-/**
- * 创建QQ空间入口
- * 
- * @param {Object} contact - 联系人对象
- * @returns {HTMLElement} QQ空间入口容器
- */
-function createQZoneEntry(contact) {
-  const qzoneDiv = document.createElement('div');
-  qzoneDiv.className = 'contact-profile-qzone-entry';
-
-  qzoneDiv.innerHTML = `
-        <i class="fa-solid fa-star"></i>
-        <span>TA的QQ空间</span>
-        <i class="fa-solid fa-chevron-right"></i>
-    `;
-
-  // 暂时不可点击
-  qzoneDiv.style.opacity = '0.6';
-  qzoneDiv.style.cursor = 'default';
-
-  // TODO: 后期实现QQ空间功能后，添加点击事件
-  // qzoneDiv.addEventListener('click', () => {
-  //     handleOpenQZone(contact.id);
-  // });
-
-  return qzoneDiv;
-}
-
-/**
- * 创建精选照片区
- * 
- * @param {Object} contact - 联系人对象
- * @returns {HTMLElement} 精选照片容器
- */
-function createPhotoGallery(contact) {
-  const galleryDiv = document.createElement('div');
-  galleryDiv.className = 'contact-profile-photo-gallery';
-
-  galleryDiv.innerHTML = `
-        <div class="contact-profile-photo-header">
-            <i class="fa-solid fa-image"></i>
-            <span>精选照片</span>
-            <i class="fa-solid fa-chevron-right"></i>
-        </div>
-        <div class="contact-profile-photo-placeholder">
-            暂无照片
-        </div>
-    `;
-
-  // TODO: 后期添加照片上传/管理功能
-  return galleryDiv;
-}
-
-/**
- * 创建底部三个按钮
+ * 创建底部按钮
  * 
  * @param {Object} contact - 联系人对象
  * @returns {HTMLElement} 底部按钮容器
@@ -382,21 +285,10 @@ function createBottomButtons(contact) {
   const buttonsDiv = document.createElement('div');
   buttonsDiv.className = 'contact-profile-bottom-buttons';
 
-  buttonsDiv.innerHTML = `
-        <button class="contact-profile-btn contact-profile-btn-disabled">
-            音视频通话
-        </button>
-        <button class="contact-profile-btn contact-profile-btn-disabled">
-            送礼物
-        </button>
-        <button class="contact-profile-btn contact-profile-btn-primary">
-            发消息
-        </button>
-    `;
-
-  // 绑定按钮事件
-  const buttons = buttonsDiv.querySelectorAll('button');
-  const messageBtn = buttons[2]; // 第3个按钮是"发消息"
+  const messageBtn = document.createElement('button');
+  messageBtn.className = 'contact-profile-btn contact-profile-btn-primary';
+  messageBtn.textContent = '发消息';
+  buttonsDiv.appendChild(messageBtn);
 
   logger.debug('phone','[ContactProfile] 创建底部按钮，contactId:', contact.id);
   logger.debug('phone','[ContactProfile] 发消息按钮元素:', messageBtn);
@@ -436,17 +328,6 @@ function createBottomButtons(contact) {
   });
 
   logger.debug('phone','[ContactProfile] 发消息按钮事件监听器已绑定');
-
-  // 其他按钮：暂时占位
-  buttons[0].addEventListener('click', (e) => {
-    e.preventDefault();
-    logger.debug('phone','[ContactProfile] 音视频通话功能待实现');
-  });
-
-  buttons[1].addEventListener('click', (e) => {
-    e.preventDefault();
-    logger.debug('phone','[ContactProfile] 送礼物功能待实现');
-  });
 
   return buttonsDiv;
 }

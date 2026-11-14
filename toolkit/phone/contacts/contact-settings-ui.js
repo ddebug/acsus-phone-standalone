@@ -106,25 +106,6 @@ async function createSettingsList(contact) {
 
   list.appendChild(group1);
 
-  // 第二组：推荐
-  const group2 = document.createElement('div');
-  group2.className = 'contact-settings-group';
-
-  group2.appendChild(createPlaceholderItem('推荐该联系人', false));
-
-  list.appendChild(group2);
-
-  // 第三组：关系与隐私
-  const group3 = document.createElement('div');
-  group3.className = 'contact-settings-group';
-
-  group3.appendChild(createPlaceholderItem('权限设置', true));
-  group3.appendChild(createPlaceholderItem('特别关心', true, '未开启'));
-  group3.appendChild(createPlaceholderItem('亲密关系', true));
-  group3.appendChild(createPlaceholderItem('关于他的线索', true));
-
-  list.appendChild(group3);
-
   // 删除按钮
   list.appendChild(createDeleteButton(contact));
 
@@ -189,37 +170,6 @@ async function createGroupItem(contact) {
   item.addEventListener('click', () => {
     handleSelectGroup(contact);
   });
-
-  return item;
-}
-
-/**
- * 创建占位设置项（暂未实现功能）
- * 
- * @param {string} label - 标签文字
- * @param {boolean} hasArrow - 是否显示右箭头
- * @param {string} [valueText] - 右侧值文字（可选）
- * @returns {HTMLElement} 占位设置项
- */
-function createPlaceholderItem(label, hasArrow = true, valueText = '') {
-  const item = document.createElement('div');
-  item.className = 'contact-settings-item contact-settings-item-disabled';
-
-  const valueHTML = valueText
-    ? `<span class="contact-settings-item-value-text">${valueText}</span>`
-    : '';
-
-  const arrowHTML = hasArrow
-    ? '<i class="fa-solid fa-chevron-right"></i>'
-    : '';
-
-  item.innerHTML = `
-        <div class="contact-settings-item-label">${label}</div>
-        <div class="contact-settings-item-value">
-            ${valueHTML}
-            ${arrowHTML}
-        </div>
-    `;
 
   return item;
 }

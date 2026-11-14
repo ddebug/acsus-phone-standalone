@@ -7,7 +7,7 @@
  * - 支持从任意主页面进入子页面
  * 
  * 设计理念：
- * - 栈底始终是主页面（messages/contacts/moments）
+ * - 栈底始终是主页面（messages/contacts）
  * - 栈中是层级页面（new-friends/contact-profile/contact-settings等）
  * - 关闭手机时清空栈（不持久化）
  */
@@ -19,7 +19,7 @@ import logger from '../../../logger.js';
  * @property {string} pageName - 页面名称（如 'contact-profile', 'chat'）
  * @property {string} pageId - 实际DOM ID（如 'page-contact-profile', 'page-chat-tavern_xxx'）
  * @property {Object} params - 页面参数（如 {contactId: 'xxx'}）
- * @property {string} fromMainTab - 来自哪个主页面（messages/contacts/moments）
+ * @property {string} fromMainTab - 来自哪个主页面（messages/contacts）
  */
 
 /**

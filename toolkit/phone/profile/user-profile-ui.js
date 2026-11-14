@@ -171,14 +171,12 @@ function createMenuList() {
 
   // 菜单项配置
   const menuItems = [
-    { icon: 'fa-image', label: '相册', handler: null },  // 占位
-    { icon: 'fa-bookmark', label: '收藏', handler: () => handleOpenFavorites() },  // 已实现
-    { icon: 'fa-file', label: '文件', handler: null },  // 占位
-    { icon: 'fa-wallet', label: '钱包', handler: () => handleOpenWallet() },  // 已实现
-    { icon: 'fa-crown', label: '会员中心', handler: () => handleOpenMembershipCenter() },  // 已实现
-    { icon: 'fa-palette', label: '个性装扮', handler: () => handleOpenCustomization() },  // 已实现
-    { icon: 'fa-pen', label: '历史个签', handler: () => handleOpenSignatureHistory() },  // 已实现
-    { icon: 'fa-circle-info', label: '甜品指南', handler: () => handleOpenHelpCenter() }  // 已实现
+    { icon: 'fa-bookmark', label: '收藏', handler: () => handleOpenFavorites() },
+    { icon: 'fa-wallet', label: '钱包', handler: () => handleOpenWallet() },
+    { icon: 'fa-crown', label: '会员中心', handler: () => handleOpenMembershipCenter() },
+    { icon: 'fa-palette', label: '个性装扮', handler: () => handleOpenCustomization() },
+    { icon: 'fa-pen', label: '历史个签', handler: () => handleOpenSignatureHistory() },
+    { icon: 'fa-circle-info', label: '甜品指南', handler: () => handleOpenHelpCenter() }
   ];
 
   menuItems.forEach(item => {

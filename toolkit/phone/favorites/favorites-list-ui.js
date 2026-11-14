@@ -225,12 +225,6 @@ function createFavoriteItem(favorite) {
     handleDeleteItem(favorite.id);
   });
 
-  // 点击收藏项（TODO: 后期可以展开查看详情）
-  item.addEventListener('click', () => {
-    logger.debug('phone','[FavoritesList] 点击收藏项:', favorite.id);
-    // 暂时不做任何操作
-  });
-
   return item;
 }
 

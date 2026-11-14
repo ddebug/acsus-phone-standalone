@@ -9,15 +9,17 @@
  */
 
 /**
- * 格式化时间（智能显示，页面UI用）
- * @param {string|Date} timestamp - 时间戳
- * @returns {string} 格式化后的时间（"刚刚" | "5分钟前" | "今天 10:23" | "昨天" | "10月18日"）
+ * 格式化时间（聊天列表、好友申请详情等页面UI用）
+ *
+ * @description
+ * 与消息列表同规则：今天只显示时间，其他天显示"月-日 时间"。
+ * 之前这里返回空字符串，导致列表时间整列空白。
+ *
+ * @param {number} timestamp - Unix时间戳（秒）
+ * @returns {string} 格式化后的时间
  */
 function formatTime(timestamp) {
-  // TODO: 实现智能时间格式化
-  // 参考【视觉设计】文档中的智能时间显示规则
-
-  return ''; // TODO
+  return formatTimeForMessageList(Number(timestamp));
 }
 
 /**

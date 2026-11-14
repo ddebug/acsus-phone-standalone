@@ -235,11 +235,14 @@ async function renderManualReplyCore({ contactId, initialText = '', initialTime,
       allowDuplicate.checked = false;
       previewSection.hidden = false;
       setStatus('预览完成，尚未保存。请核对正文、目标和时间。');
-    } catch {
+    } catch (error) {
       if (requestedRevision === revision) {
         preview = null;
         previewInput = null;
-        setStatus('无法预览：请检查联系人、消息时间及最终回复正文。不要粘贴整份请求、日志或凭据；原文仍可编辑。', true);
+        const reason = displayReason(error);
+        setStatus(reason
+          ? `无法预览：${reason}`
+          : '无法预览：请检查联系人、消息时间及最终回复正文。不要粘贴整份请求、日志或凭据；原文仍可编辑。', true);
       }
     } finally {
       busy = false;
@@ -311,12 +314,19 @@ async function renderManualReplyCore({ contactId, initialText = '', initialTime,
         previewInput = null;
         const savedText = result.alreadyExists ? '已存在：未新增回复（0 条）。' : '已保存 1 条回复。';
         setStatus(savedText + (result.displayPending ? '当前缓存未更新，请关闭手机再打开；较早的日期需上滑查看。' : '可返回聊天；较早的日期需上滑查看。'));
-      } catch {
-        faulted = true;
-        faultedContacts.add(contactId);
+      } catch (error) {
         preview = null;
         previewInput = null;
-        setStatus('保存结果不明，结果可能已写入，勿重复补录。请先导出手机备份再刷新；本页已停止预览和保存，原文仍可复制。', true);
+        const reason = displayReason(error);
+        if (error?.manualReplyPreflight) {
+          // Deterministic failure before any write: allow the user to preview
+          // again instead of permanently locking this contact.
+          setStatus(`未保存${reason ? `：${reason}` : '；请重新预览'}`, true);
+        } else {
+          faulted = true;
+          faultedContacts.add(contactId);
+          setStatus(`保存结果不明${reason ? `：${reason}` : '，结果可能已写入'}。请先导出手机备份再刷新；本页已停止预览和保存，原文仍可复制。`, true);
+        }
       }
     } finally {
       busy = false;
@@ -333,6 +343,22 @@ async function renderManualReplyCore({ contactId, initialText = '', initialTime,
     isBusy: () => busy,
     isFaulted: () => faulted,
   };
+}
+
+function displayReason(error) {
+  const code = error?.code;
+  if (code === 'NOT_READY') return '手机存储尚未就绪，未写入。';
+  if (code === 'IMPORT_BUSY') return '正在导入手机备份，暂时不能保存，未写入。';
+  if (code === 'CONFLICT') return '手机文件已被其他页面修改，未写入。';
+  if (code === 'READ_FAILED') return '手机文件读取失败，未写入。';
+  const message = error?.message;
+  if (typeof message !== 'string') return '';
+  const trimmed = message.trim().replace(/[\r\n]+/g, ' ');
+  // Product errors are concise Chinese sentences. Keep diagnostics local
+  // (English parser/runtime errors may contain internals) and never echo raw
+  // pasted text back into the page.
+  if (!trimmed || trimmed.length > 160 || !/[\u3400-\u9fff]/.test(trimmed)) return '';
+  return trimmed;
 }
 
 function element(tag, className = '', text) {

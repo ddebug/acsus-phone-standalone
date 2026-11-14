@@ -21,14 +21,6 @@
  * @type {Object<string, {id: string, name: string, order: number, bubbles: Array}>}
  */
 export const BUBBLE_CATEGORIES = {
-  // 自定义分类（固定在顶部，不参与随机排序）
-  custom: {
-    id: 'custom',
-    name: '自定义',
-    order: 0,
-    bubbles: [] // 用户自定义气泡，从 extension_settings 加载
-  },
-  
   // 简约风格（纯色、简洁、圆角）
   minimal: {
     id: 'minimal',
@@ -597,15 +589,3 @@ export const BUBBLE_CATEGORIES = {
     ]
   }
 };
-
-/**
- * 预设头像框装扮列表（暂未实现）
- * @type {Array}
- */
-export const PRESET_AVATAR_FRAMES = [];
-
-/**
- * 预设主题装扮列表（暂未实现）
- * @type {Array}
- */
-export const PRESET_THEMES = [];

@@ -156,9 +156,8 @@ function createInputArea() {
             <button class="chat-send-btn" title="调用AI；空内容时让角色主动继续" aria-label="调用AI；空内容时让角色主动继续"><i class="fa-solid fa-paper-plane"></i></button>
         </div>
 
-        <!-- 第二行：6个功能按钮 -->
+        <!-- 第二行：5个功能按钮 -->
         <div class="chat-input-row-bottom">
-            <button class="chat-voice-btn"><i class="fa-solid fa-microphone"></i></button>
             <button class="chat-camera-btn" title="拍照"><i class="fa-solid fa-camera"></i></button>
             <button class="chat-plan-list-btn" title="约定计划列表"><i class="fa-solid fa-clipboard-list"></i></button>
             <button class="chat-debug-btn" title="调用调试 / 补录回复" aria-label="调用调试与补录角色回复"><i class="fa-solid fa-robot"></i></button>
@@ -474,28 +473,12 @@ function createPlusPanel() {
                             <span>拍摄</span>
                         </div>
                         <div class="chat-plus-item">
-                            <i class="fa-solid fa-phone"></i>
-                            <span>语音...</span>
-                        </div>
-                        <div class="chat-plus-item">
-                            <i class="fa-solid fa-video"></i>
-                            <span>视频...</span>
-                        </div>
-                        <div class="chat-plus-item">
-                            <i class="fa-solid fa-location-dot"></i>
-                            <span>位置</span>
-                        </div>
-                        <div class="chat-plus-item">
-                            <i class="fa-solid fa-file"></i>
-                            <span>文件</span>
-                        </div>
-                        <div class="chat-plus-item">
                             <i class="fa-solid fa-star"></i>
                             <span>收藏</span>
                         </div>
                         <div class="chat-plus-item">
-                            <i class="fa-solid fa-envelope"></i>
-                            <span>红包</span>
+                            <i class="fa-solid fa-hand-pointer"></i>
+                            <span>戳一戳</span>
                         </div>
                     </div>
                 </div>
@@ -514,26 +497,6 @@ function createPlusPanel() {
                         <div class="chat-plus-item">
                             <i class="fa-solid fa-crown"></i>
                             <span>送会员</span>
-                        </div>
-                        <div class="chat-plus-item">
-                            <i class="fa-solid fa-share-from-square"></i>
-                            <span>屏幕...</span>
-                        </div>
-                        <div class="chat-plus-item">
-                            <i class="fa-solid fa-hand-pointer"></i>
-                            <span>戳一戳</span>
-                        </div>
-                        <div class="chat-plus-item">
-                            <i class="fa-solid fa-address-card"></i>
-                            <span>名片</span>
-                        </div>
-                        <div class="chat-plus-item">
-                            <i class="fa-solid fa-gift"></i>
-                            <span>礼物</span>
-                        </div>
-                        <div class="chat-plus-item">
-                            <i class="fa-solid fa-headphones"></i>
-                            <span>一起...</span>
                         </div>
                     </div>
                 </div>
@@ -810,8 +773,8 @@ function bindPlusPanel(page) {
         return;
       }
 
-      // 其他功能暂时输出日志
-      logger.info('phone','[ChatView] 点击+号菜单项:', text, '（功能待实现）');
+      // 未识别的菜单项只记日志，不再假装有功能
+      logger.debug('phone','[ChatView] 未识别的加号菜单项:', text);
       closePanels(page);
     }
   });

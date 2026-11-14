@@ -7,22 +7,22 @@
  * 管理主界面右上角的+按钮弹出菜单，包含多个快捷功能入口
  * 
  * 功能列表：
- * - 同步酒馆角色（已实现）
- * - 创建群聊（待添加）
- * - 加好友/群（待添加）
- * - 分组管理（已实现）
- * - API设置（已实现）
- * - 清空手机数据（已实现）
+ * - 同步酒馆角色
+ * - 分组管理
+ * - API设置
+ * - 预设
+ * - 清空手机数据
+ * - 清空会员数据
  */
 
 import logger from '../../../logger.js';
 
 /**
  * 创建加号菜单DOM
- * 
+ *
  * @description
- * 创建包含6个菜单项的弹出菜单，初始状态为隐藏
- * 
+ * 创建菜单项，初始状态为隐藏
+ *
  * @returns {HTMLElement} 加号菜单元素（.add-menu）
  */
 export function createPlusMenu() {
@@ -37,51 +37,33 @@ export function createPlusMenu() {
     {
       icon: 'fa-arrows-rotate',
       text: '同步酒馆角色',
-      action: 'sync-tavern-characters',
-      enabled: true
-    },
-    {
-      icon: 'fa-user-plus',
-      text: '创建群聊',
-      action: 'create-group',
-      enabled: false
-    },
-    {
-      icon: 'fa-user-group',
-      text: '加好友/群',
-      action: 'add-friend',
-      enabled: false
+      action: 'sync-tavern-characters'
     },
     {
       icon: 'fa-layer-group',
       text: '分组管理',
-      action: 'manage-groups',
-      enabled: true
+      action: 'manage-groups'
     },
     {
       icon: 'fa-gear',
       text: 'API设置',
-      action: 'api-settings',
-      enabled: true
+      action: 'api-settings'
     },
     {
       icon: 'fa-sliders',
       text: '预设',
-      action: 'preset-settings',
-      enabled: true
+      action: 'preset-settings'
     },
     {
       icon: 'fa-trash-can',
       text: '清空手机数据（临时）',
       action: 'clear-phone-data',
-      enabled: true,
       style: 'color: #ff4d4f;' // 红色警告
     },
     {
       icon: 'fa-crown',
       text: '清空会员数据（测试）',
       action: 'clear-membership-data',
-      enabled: true,
       style: 'color: #ff4d4f;' // 红色警告
     }
   ];
@@ -94,14 +76,8 @@ export function createPlusMenu() {
 
     menuItem.innerHTML = `
       <i class="fa-solid ${item.icon}"></i>
-      <span>${item.enabled ? item.text : item.text + '（待添加）'}</span>
+      <span>${item.text}</span>
     `;
-
-    // 如果功能未启用，添加禁用样式
-    if (!item.enabled) {
-      menuItem.style.opacity = '0.5';
-      menuItem.style.cursor = 'not-allowed';
-    }
 
     // 如果有自定义样式，应用
     if (item.style) {
@@ -150,12 +126,6 @@ export function bindPlusMenuEvents(overlayElement, onMenuItemClick) {
     const itemElement = /** @type {HTMLElement} */ (item);
     itemElement.addEventListener('click', () => {
       const action = itemElement.dataset.action;
-      const isEnabled = itemElement.style.cursor !== 'not-allowed';
-
-      if (!isEnabled) {
-        logger.debug('phone','[PlusMenu] 功能未启用:', action);
-        return;
-      }
 
       logger.info('phone','[PlusMenu] 点击菜单项:', action);
 

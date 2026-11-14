@@ -13,8 +13,8 @@ import { getChatSendSettings } from './message-chat-data.js';
  * 渲染聊天设置页
  *
  * @description
- * 显示聊天的设置选项，包括查找记录、置顶、免打扰等。
- * 所有功能都是占位符，开关状态不存储，只做视觉切换。
+ * 显示聊天设置选项：角色提示词、消息发送管理、聊天日记、角色小剧场、
+ * 补录回复、消息条数、置顶、往来记录、通知设置、装扮、聊天背景和删除记录。
  *
  * @async
  * @param {Object} params - 参数对象
@@ -242,22 +242,6 @@ function createSettingsList(contact) {
                 </div>
             </div>
 
-            <!-- 隐藏会话 -->
-            <div class="chat-settings-item" data-action="hide-chat">
-                <span class="chat-settings-item-label">隐藏会话</span>
-                <div class="chat-settings-toggle">
-                    <div class="chat-settings-toggle-thumb"></div>
-                </div>
-            </div>
-
-            <!-- 消息免打扰 -->
-            <div class="chat-settings-item" data-action="mute">
-                <span class="chat-settings-item-label">消息免打扰</span>
-                <div class="chat-settings-toggle">
-                    <div class="chat-settings-toggle-thumb"></div>
-                </div>
-            </div>
-
             <!-- 消息通知设置 -->
             <div class="chat-settings-item" data-action="notification-settings">
                 <span class="chat-settings-item-label">消息通知设置</span>
@@ -359,22 +343,6 @@ function bindSettingsEvents(list, contact) {
     handleTransactions(contact);
   });
 
-  // 隐藏会话（开关）
-  const hideChatBtn = list.querySelector('[data-action="hide-chat"] .chat-settings-toggle');
-  hideChatBtn.addEventListener('click', () => {
-    const isActive = hideChatBtn.classList.contains('active');
-    hideChatBtn.classList.toggle('active');
-    handleHideChat(contact, !isActive);
-  });
-
-  // 消息免打扰（开关）
-  const muteBtn = list.querySelector('[data-action="mute"] .chat-settings-toggle');
-  muteBtn.addEventListener('click', () => {
-    const isActive = muteBtn.classList.contains('active');
-    muteBtn.classList.toggle('active');
-    handleMute(contact, !isActive);
-  });
-
   // 消息通知设置（链接）
   list.querySelector('[data-action="notification-settings"]').addEventListener('click', () => {
     handleNotificationSettings(contact);
@@ -409,7 +377,7 @@ function handleBack() {
 }
 
 // ========================================
-// 占位功能处理函数（暂不实现具体逻辑）
+// 设置项处理函数
 // ========================================
 
 /**
@@ -499,15 +467,6 @@ async function handleUpdateSendSettings(contact, key, value) {
 }
 
 /**
- * 查找聊天记录（占位）
- * @param {Object} contact - 联系人对象
- */
-function handleSearchChat(contact) {
-  logger.info('phone','[ChatSettings] 查找聊天记录（功能待实现）:', contact.name);
-  // TODO: 跳转到查找聊天记录页面
-}
-
-/**
  * 设为置顶
  *
  * @async
@@ -549,26 +508,6 @@ async function handleTransactions(contact) {
   }
 
   logger.info('phone','[ChatSettings] 已打开往来记录页面');
-}
-
-/**
- * 隐藏会话（占位）
- * @param {Object} contact - 联系人对象
- * @param {boolean} checked - 是否隐藏
- */
-function handleHideChat(contact, checked) {
-  logger.info('phone','[ChatSettings] 隐藏会话:', contact.name, checked);
-  // TODO: 实现隐藏会话逻辑（存储状态、更新列表显示）
-}
-
-/**
- * 消息免打扰（占位）
- * @param {Object} contact - 联系人对象
- * @param {boolean} checked - 是否免打扰
- */
-function handleMute(contact, checked) {
-  logger.info('phone','[ChatSettings] 消息免打扰:', contact.name, checked);
-  // TODO: 实现免打扰逻辑（存储状态、控制通知）
 }
 
 /**

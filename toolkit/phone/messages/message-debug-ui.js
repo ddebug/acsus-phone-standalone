@@ -18,6 +18,7 @@ import { loadChatHistory, saveChatMessage } from './message-chat-data.js';
 import { parseAIResponse, validateAIResponse } from '../ai-integration/ai-response-parser.js';
 import { splitCharacterExtras } from './character-extras-data.js';
 import { getContactDisplayName } from '../utils/contact-display-helper.js';
+import { isManualReplyRoleName, manualReplyRoleNames } from './manual-reply-role-names.js';
 import { registerListener, destroyPageListeners } from '../utils/listener-manager.js';
 import { attachDebugRecoveryShell } from './message-debug-recovery.js';
 
@@ -548,10 +549,11 @@ async function validateTags(text, contactId) {
     const contacts = await loadContacts();
     const contact = contacts.find(c => c.id === contactId);
     if (contact) {
-      const displayName = getContactDisplayName(contact);
-      const roleName = roleMatches[0].match(/\[角色-([^\]]+)\]/)[1];
-      if (roleName !== displayName) {
-        errors.push(`⚠️ 角色名不匹配：期望 "${displayName}"，实际 "${roleName}"`);
+      const roleNames = roleMatches.map(match => match.match(/\[角色-([^\]]+)\]/)[1]);
+      const invalid = roleNames.filter(name => !isManualReplyRoleName(contact, name));
+      if (invalid.length) {
+        const accepted = manualReplyRoleNames(contact).join(' / ');
+        errors.push(`⚠️ 角色名不匹配：可用 "${accepted}"，实际 "${invalid.join('、')}"`);
       }
     }
   }

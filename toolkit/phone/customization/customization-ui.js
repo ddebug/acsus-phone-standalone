@@ -2,11 +2,8 @@
  * 个性装扮页面
  *
  * @description
- * 提供装扮商店功能：
- * - 主题：界面配色和背景
- * - 聊天气泡：聊天气泡样式
- * - 头像挂件：头像装饰框
- * - 字体：聊天字体样式
+ * 提供聊天气泡装扮商店：分类筛选、气泡预览、购买与会员价。
+ * 主题、头像挂件、字体等其余装扮类型尚未实现，因此页面只保留气泡入口。
  *
  * @file customization-ui.js
  */
@@ -21,8 +18,7 @@ import { showConfirmPopup, showCustomPopupWithData } from '../utils/popup-helper
  * 渲染个性装扮页面
  *
  * @description
- * 包含四个标签页：主题、聊天气泡、头像挂件、字体
- * 当前只实现聊天气泡功能
+ * 当前只实现聊天气泡，页面不再提供其它装扮类型入口
  *
  * @returns {Promise<DocumentFragment>} 页面DOM片段
  */
@@ -42,63 +38,16 @@ export async function renderCustomizationPage() {
       <div class="customization-title">个性装扮</div>
     </div>
 
-    <div class="customization-tabs">
-      <button class="customization-tab" data-tab="theme">主题</button>
-      <button class="customization-tab active" data-tab="bubble">气泡</button>
-      <button class="customization-tab" data-tab="avatar">头像挂件</button>
-      <button class="customization-tab" data-tab="font">字体</button>
-      <button class="customization-tab" data-tab="transfer">转账</button>
-      <button class="customization-tab" data-tab="gift-membership">赠送会员</button>
-      <button class="customization-tab" data-tab="plan">计划</button>
-      <button class="customization-tab" data-tab="plan-story">计划故事</button>
-      <button class="customization-tab" data-tab="signature">个签</button>
-    </div>
-
     <div class="customization-content">
-      <div class="customization-tab-content" data-content="theme" style="display: none;">
-        <div class="customization-empty">主题功能开发中...</div>
-      </div>
-
       <div class="customization-tab-content active" data-content="bubble">
         <!-- 气泡分类列表 -->
         <div class="customization-bubble-categories"></div>
-      </div>
-
-      <div class="customization-tab-content" data-content="avatar" style="display: none;">
-        <div class="customization-empty">头像挂件功能开发中...</div>
-      </div>
-
-      <div class="customization-tab-content" data-content="font" style="display: none;">
-        <div class="customization-empty">字体功能开发中...</div>
-      </div>
-
-      <div class="customization-tab-content" data-content="transfer" style="display: none;">
-        <div class="customization-empty">转账样式功能开发中...</div>
-      </div>
-
-      <div class="customization-tab-content" data-content="gift-membership" style="display: none;">
-        <div class="customization-empty">赠送会员样式功能开发中...</div>
-      </div>
-
-      <div class="customization-tab-content" data-content="plan" style="display: none;">
-        <div class="customization-empty">计划样式功能开发中...</div>
-      </div>
-
-      <div class="customization-tab-content" data-content="plan-story" style="display: none;">
-        <div class="customization-empty">计划故事样式功能开发中...</div>
-      </div>
-
-      <div class="customization-tab-content" data-content="signature" style="display: none;">
-        <div class="customization-empty">个签样式功能开发中...</div>
       </div>
     </div>
   `;
 
   // 绑定返回按钮
   bindBackButton(container);
-
-  // 绑定标签切换
-  bindTabSwitch(container);
 
   // 渲染气泡分类列表
   await renderBubbleCategories(container);
@@ -124,45 +73,11 @@ function bindBackButton(container) {
 }
 
 /**
- * 绑定标签切换事件
- *
- * @param {HTMLElement} container - 页面容器
- */
-function bindTabSwitch(container) {
-  const tabs = container.querySelectorAll('.customization-tab');
-  const contents = container.querySelectorAll('.customization-tab-content');
-
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const tabName = tab.dataset.tab;
-      logger.debug('phone',`[Customization] 切换标签: ${tabName}`);
-
-      // 更新标签激活状态
-      tabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-
-      // 更新内容显示
-      contents.forEach(content => {
-        if (content.dataset.content === tabName) {
-          content.classList.add('active');
-          content.style.display = 'block';
-        } else {
-          content.classList.remove('active');
-          content.style.display = 'none';
-        }
-      });
-    });
-  });
-}
-
-/**
  * 渲染气泡分类列表
  *
  * @description
- * 新架构：
- * 1. 顶部：自定义分类（+按钮和随机5个气泡）
- * 2. 中间：标签栏（横向滚动，包含全部和各个分类）
- * 3. 下方：气泡网格（点击标签切换显示）
+ * 1. 顶部：标签栏（横向滚动，包含全部和各个分类）
+ * 2. 下方：气泡网格（点击标签切换显示）
  *
  * @param {HTMLElement} container - 页面容器
  */
@@ -171,25 +86,18 @@ async function renderBubbleCategories(container) {
 
   const categoriesContainer = container.querySelector('.customization-bubble-categories');
 
-  // 1. 渲染自定义分类
-  const customCategory = BUBBLE_CATEGORIES.custom;
-  if (customCategory) {
-    const customSection = await createCategorySection(customCategory);
-    categoriesContainer.appendChild(customSection);
-  }
-
-  // 2. 渲染标签栏
+  // 1. 渲染标签栏
   const filterSection = createFilterSection();
   categoriesContainer.appendChild(filterSection);
 
-  // 3. 渲染气泡网格容器
+  // 2. 渲染气泡网格容器
   const gridSection = createGridSection();
   categoriesContainer.appendChild(gridSection);
 
-  // 4. 默认显示"全部"
+  // 3. 默认显示"全部"
   await renderBubbleGrid(gridSection, 'all');
 
-  // 5. 订阅用户会员数据变化
+  // 4. 订阅用户会员数据变化
   const pageId = 'customization';
   // 🔥 修复：键名必须与 stateManager.set 保持一致（都用 'userMembership'）
   stateManager.subscribe(pageId, 'userMembership', async (meta) => {
@@ -390,131 +298,6 @@ async function renderBubbleGrid(gridSection, categoryId) {
   }
 
   logger.debug('phone',`[Customization] 网格显示 ${bubbles.length} 个气泡`);
-}
-
-/**
- * 创建分类区块
- *
- * @description
- * 包含分类标题、横向滚动的气泡列表、查看更多按钮
- *
- * @param {Object} category - 分类配置
- * @param {string} category.id - 分类ID
- * @param {string} category.name - 分类名称
- * @param {Array} category.bubbles - 气泡列表
- * @returns {Promise<HTMLElement>} 分类区块元素
- */
-async function createCategorySection(category) {
-  const section = document.createElement('div');
-  section.className = 'customization-category-section';
-  section.dataset.categoryId = category.id;
-
-  // 分类标题栏
-  const header = document.createElement('div');
-  header.className = 'customization-category-header';
-
-  const title = document.createElement('div');
-  title.className = 'customization-category-title';
-  title.textContent = category.name;
-
-  const moreBtn = document.createElement('button');
-  moreBtn.className = 'customization-category-more';
-  moreBtn.textContent = '…';
-  moreBtn.addEventListener('click', () => {
-    logger.info('phone',`[Customization] 点击查看更多: ${category.name}`);
-    // TODO: 跳转到分类详情页
-    alert(`查看 ${category.name} 的所有气泡\n\n功能开发中...`);
-  });
-
-  header.appendChild(title);
-  header.appendChild(moreBtn);
-
-  // 气泡横向滚动容器
-  const scrollContainer = document.createElement('div');
-  scrollContainer.className = 'customization-category-scroll';
-
-  // 自定义分类特殊处理：始终显示+按钮 + 随机5个自定义气泡
-  if (category.id === 'custom') {
-    // 始终显示添加按钮
-    const addBtn = createAddCustomBubbleButton();
-    scrollContainer.appendChild(addBtn);
-
-    // 如果有自定义气泡，随机显示5个
-    if (category.bubbles.length > 0) {
-      const displayBubbles = getRandomBubbles(category.bubbles, 5);
-      for (const bubble of displayBubbles) {
-        const item = await createBubbleItem(bubble);
-        scrollContainer.appendChild(item);
-      }
-    }
-  } else {
-    // 其他分类：随机显示6个气泡
-    const displayBubbles = getRandomBubbles(category.bubbles, 6);
-    for (const bubble of displayBubbles) {
-      const item = await createBubbleItem(bubble);
-      scrollContainer.appendChild(item);
-    }
-  }
-
-  section.appendChild(header);
-  section.appendChild(scrollContainer);
-
-  return section;
-}
-
-/**
- * 创建添加自定义气泡按钮
- *
- * @returns {HTMLElement} 添加按钮元素
- */
-function createAddCustomBubbleButton() {
-  const wrapper = document.createElement('div');
-  wrapper.className = 'customization-bubble-wrapper customization-add-bubble';
-
-  const btn = document.createElement('button');
-  btn.className = 'char-prompt-add-btn';
-  btn.innerHTML = `
-    <i class="fa-solid fa-plus"></i>
-    <span>自定义气泡</span>
-  `;
-
-  btn.addEventListener('click', () => {
-    logger.info('phone','[Customization] 点击自定义气泡按钮');
-    // TODO: 打开自定义气泡上传页面
-    alert('自定义气泡功能开发中...\n\n普通用户：购买后永久使用\nSVIP用户：免费定制（到期后需购买）\n\n可以上传本地图片或使用网络链接');
-  });
-
-  wrapper.appendChild(btn);
-  return wrapper;
-}
-
-/**
- * 从数组中随机抽取指定数量的元素
- *
- * @param {Array} array - 源数组
- * @param {number} count - 抽取数量
- * @returns {Array} 随机抽取的元素数组
- */
-function getRandomBubbles(array, count) {
-  if (array.length === 0) return [];
-  if (array.length <= count) return shuffleArray([...array]);
-
-  const shuffled = shuffleArray([...array]);
-  return shuffled.slice(0, count);
-}
-
-/**
- * 随机打乱数组顺序（Fisher-Yates 洗牌算法）
- *
- * @param {Array} array - 要打乱的数组
- * @returns {Array} 打乱后的数组
- */
-function shuffleArray(array) {
-  for (let i = array.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [array[i], array[j]] = [array[j], array[i]];
-  }
-  return array;
 }
 
 /**

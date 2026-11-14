@@ -31,7 +31,7 @@ import { bindPhoneThemeSurfaces, releasePhoneThemeSurfaces } from './utils/theme
  * 渲染手机框架
  *
  * @description
- * 创建手机遮罩层和容器元素，包含完整的界面结构（顶部栏、三个标签页、底部导航）
+ * 创建手机遮罩层和容器元素，包含完整的界面结构（顶部栏、两个标签页、底部导航）
  * 并绑定所有必要的事件监听器
  *
  * @returns {HTMLElement} 手机遮罩层元素（.phone-overlay）
@@ -148,7 +148,7 @@ function bindFrameEvents(overlayElement) {
  * 3. 清空栈并更新当前主页面
  *
  * @param {HTMLElement} overlayElement - 手机遮罩层元素
- * @param {string} tabName - 标签页名称（messages/contacts/moments）
+ * @param {string} tabName - 标签页名称（messages/contacts）
  */
 async function handleBottomNavClick(overlayElement, tabName) {
   logger.debug('phone','[PhoneUI.handleBottomNavClick] 点击底部导航:', tabName);
@@ -183,7 +183,7 @@ async function handleBottomNavClick(overlayElement, tabName) {
  * 切换标签页
  *
  * @param {HTMLElement} overlayElement - 手机遮罩层元素
- * @param {string} tabName - 标签页名称（messages/contacts/moments）
+ * @param {string} tabName - 标签页名称（messages/contacts）
  */
 async function switchTab(overlayElement, tabName) {
   logger.debug('phone','[PhoneUI.switchTab] 切换到标签页:', tabName);
@@ -271,7 +271,7 @@ function updateUserInfo(overlayElement) {
  * - 其他页：显示"标签页名称"（单行）
  *
  * @param {HTMLElement} overlayElement - 手机遮罩层元素
- * @param {string} tabName - 标签页名称（messages/contacts/moments）
+ * @param {string} tabName - 标签页名称（messages/contacts）
  */
 function updateHeaderTitle(overlayElement, tabName) {
   const userName = /** @type {HTMLElement} */ (overlayElement.querySelector('.phone-header-user-name'));
@@ -290,8 +290,7 @@ function updateHeaderTitle(overlayElement, tabName) {
   } else {
     // 其他页：显示标签页名称（单行）
     const titleMap = {
-      'contacts': '联系人',
-      'moments': '动态'
+      'contacts': '联系人'
     };
     userName.textContent = titleMap[tabName] || '';
     userStatus.style.display = 'none';  // 隐藏第二行
@@ -322,7 +321,7 @@ function closePhoneUI() {
 }
 
 /**
- * 显示主布局（三个标签页）
+ * 显示主布局（两个标签页）
  *
  * @param {HTMLElement} overlayElement - 手机遮罩层元素
  */
@@ -335,7 +334,7 @@ function showMainLayout(overlayElement) {
 }
 
 /**
- * 隐藏主布局（三个标签页）
+ * 隐藏主布局（两个标签页）
  *
  * @param {HTMLElement} overlayElement - 手机遮罩层元素
  */
@@ -377,7 +376,7 @@ function hideBottomNav(overlayElement) {
  * 获取当前激活的标签页
  *
  * @param {HTMLElement} overlayElement - 手机遮罩层元素
- * @returns {string} 当前标签页名称（messages/contacts/moments）
+ * @returns {string} 当前标签页名称（messages/contacts）
  */
 function getCurrentActiveTab(overlayElement) {
   const activeBtn = overlayElement.querySelector('.phone-nav-item.active');
@@ -581,13 +580,6 @@ async function handlePlusMenuAction(action) {
       await handleClearMembershipData(/** @type {HTMLElement} */(phoneOverlay));
       break;
 
-    case 'create-group':
-    case 'add-friend':
-    case 'send-file':
-      // 待添加功能，暂时不做任何操作
-      logger.debug('phone','[PhoneUI] 功能待添加:', action);
-      break;
-
     default:
       logger.warn('phone','[PhoneUI] 未知的菜单操作:', action);
   }
@@ -752,7 +744,7 @@ async function handleClearMembershipData(overlayElement) {
  * 显示独立页面（带滑动动画）
  *
  * @description
- * 隐藏主布局（三个标签页），显示指定的独立页面
+ * 隐藏主布局（两个标签页），显示指定的独立页面
  * 页面只创建一次，后续显示时只刷新内容（不删除DOM）
  * 自动管理页面栈和底部导航显隐
  *

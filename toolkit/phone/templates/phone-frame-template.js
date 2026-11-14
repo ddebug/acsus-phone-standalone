@@ -3,8 +3,8 @@
  * 
  * 职责：
  * - 提供手机容器的完整 HTML 结构
- * - 包含：顶部栏、三个标签页容器、底部导航
- * 
+ * - 包含：顶部栏、两个标签页容器、底部导航
+ *
  * 来源：
  * - 复制自 phone-demo.html
  * - 已去除演示用的硬编码内容
@@ -19,7 +19,7 @@ export function getPhoneFrameHTML() {
   return `
         <div class="phone-overlay">
             <div class="phone-container">
-                <!-- 主页面布局（三个主标签页共享） -->
+                <!-- 主页面布局（两个主标签页共享） -->
                 <div id="main-layout" class="phone-page active">
                     <!-- 顶部栏（共享） -->
                     <div class="phone-header">
@@ -42,28 +42,13 @@ export function getPhoneFrameHTML() {
                     <!-- 右上角加号菜单（弹出菜单，由 JS 填充内容） -->
                     <div class="add-menu" id="add-menu"></div>
 
-                    <!-- 内容区（三个标签页切换） -->
+                    <!-- 内容区（两个标签页切换） -->
                     <div class="phone-content">
                         <!-- 消息标签页 -->
-                        <div id="tab-messages" class="phone-tab active">
-                            <p style="text-align: center; padding: 20px; color: #999;">
-                                消息列表（待实现）
-                            </p>
-                        </div>
+                        <div id="tab-messages" class="phone-tab active"></div>
 
                         <!-- 联系人标签页 -->
-                        <div id="tab-contacts" class="phone-tab">
-                            <p style="text-align: center; padding: 20px; color: #999;">
-                                联系人列表（待实现）
-                            </p>
-                        </div>
-
-                        <!-- 动态标签页 -->
-                        <div id="tab-moments" class="phone-tab">
-                            <p style="text-align: center; padding: 20px; color: #999;">
-                                空间动态（待实现）
-                            </p>
-                        </div>
+                        <div id="tab-contacts" class="phone-tab"></div>
                     </div>
 
                     <!-- 底部导航（共享） -->
@@ -75,10 +60,6 @@ export function getPhoneFrameHTML() {
                         <button class="phone-nav-item" data-tab="contacts">
                             <i class="fa-solid fa-user"></i>
                             <span>联系人</span>
-                        </button>
-                        <button class="phone-nav-item" data-tab="moments">
-                            <i class="fa-solid fa-heart"></i>
-                            <span>动态</span>
                         </button>
                     </div>
                 </div>

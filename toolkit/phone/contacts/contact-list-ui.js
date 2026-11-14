@@ -23,8 +23,8 @@ import { formatTime } from '../utils/time-helper.js';
  * 渲染联系人列表
  * 
  * @description
- * 创建联系人页面的内容（不包含外层容器），包括搜索框、
- * 特殊项（新朋友/群通知）、分组列表等
+ * 创建联系人页面的内容（不包含外层容器），包括特殊项（新朋友）
+ * 和分组列表等
  * 
  * @async
  * @returns {Promise<DocumentFragment>} 联系人列表内容片段
@@ -39,14 +39,11 @@ async function renderContactList() {
     // 使用文档片段（不创建外层容器）
     const fragment = document.createDocumentFragment();
 
-    // 1. 创建搜索框
-    fragment.appendChild(createSearchBar());
-
-    // 2. 创建特殊项（新朋友/群通知）- 异步获取徽章数量
+    // 1. 创建特殊项（新朋友）- 异步获取徽章数量
     const specialItems = await createSpecialItems();
     fragment.appendChild(specialItems);
 
-    // 3. 创建分组列表（异步）
+    // 2. 创建分组列表（异步）
     const groupsElement = await createContactGroups(contacts);
     fragment.appendChild(groupsElement);
 
@@ -66,21 +63,7 @@ async function renderContactList() {
 }
 
 /**
- * 创建搜索框
- * @returns {HTMLElement} 搜索框元素
- */
-function createSearchBar() {
-  const searchBar = document.createElement('div');
-  searchBar.className = 'contact-search-bar';
-  searchBar.innerHTML = `
-    <i class="fa-solid fa-magnifying-glass"></i>
-    <input type="text" placeholder="搜索">
-  `;
-  return searchBar;
-}
-
-/**
- * 创建特殊项（新朋友/群通知）
+ * 创建特殊项（新朋友）
  * 
  * @description
  * 创建特殊项列表，"新朋友"右侧显示未同意角色数量的徽章
@@ -114,17 +97,7 @@ async function createSpecialItems() {
     }
   });
 
-  // 群通知
-  const groupNotify = document.createElement('div');
-  groupNotify.className = 'contact-special-item';
-  groupNotify.innerHTML = `
-    <i class="fa-solid fa-users contact-special-icon"></i>
-    <span class="contact-special-text">群通知</span>
-    <i class="fa-solid fa-chevron-right contact-special-arrow"></i>
-  `;
-
   container.appendChild(newFriends);
-  container.appendChild(groupNotify);
 
   return container;
 }

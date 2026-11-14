@@ -2,7 +2,7 @@
  * 会员中心页面UI
  *
  * @description
- * 显示当前会员状态、购买/续费会员、送给角色会员
+ * 显示当前会员状态、购买/续费会员
  *
  * @module membership-center-ui
  */
@@ -55,9 +55,6 @@ export async function renderMembershipCenter(container) {
 
   // 功能说明（标签切换）
   content.appendChild(createFeaturesSection());
-
-  // 送给角色会员区域
-  content.appendChild(createGiftSection());
 
   container.appendChild(content);
 
@@ -340,7 +337,6 @@ function createFeaturesSection() {
       <ul class="membership-feature-list">
         <li><i class="fa-solid fa-check"></i> 年费会员，最大化增加等级</li>
         <li><i class="fa-solid fa-check"></i> 装扮随便用（会员期间）</li>
-        <li><i class="fa-solid fa-check"></i> TODO: 更多特权敬请期待</li>
       </ul>
     </div>
   `;
@@ -362,37 +358,6 @@ function createFeaturesSection() {
       tabContent.querySelector(`[data-panel="${tabName}"]`).classList.add('active');
     });
   });
-
-  return section;
-}
-
-/**
- * 创建送给角色会员区域
- *
- * @returns {HTMLElement}
- */
-function createGiftSection() {
-  const section = document.createElement('div');
-  section.className = 'membership-gift-section';
-
-  const title = document.createElement('h3');
-  title.className = 'membership-section-title';
-  title.textContent = '送给角色会员';
-  section.appendChild(title);
-
-  const hint = document.createElement('p');
-  hint.className = 'membership-hint';
-  hint.textContent = '注意：通过此方式送会员，角色将无法感知到您的赠送。如需让角色知晓，请通过聊天页面的"+"菜单进行赠送。';
-  section.appendChild(hint);
-
-  const button = document.createElement('button');
-  button.className = 'membership-gift-btn';
-  button.innerHTML = `
-    <i class="fa-solid fa-gift"></i>
-    <span>选择角色赠送</span>
-  `;
-  button.addEventListener('click', handleOpenGiftDialog);
-  section.appendChild(button);
 
   return section;
 }
@@ -443,17 +408,6 @@ async function handlePurchaseMembership(optionKey) {
     logger.error('phone','[MembershipCenter]] 购买会员失败:', error);
     showErrorToast('购买失败，请稍后重试');
   }
-}
-
-/**
- * 处理打开送礼对话框
- *
- * @async
- */
-async function handleOpenGiftDialog() {
-  logger.info('phone','[MembershipCenter]] 打开送礼对话框');
-  // TODO: 实现送礼对话框
-  showSuccessToast('送礼功能开发中，敬请期待');
 }
 
 /**

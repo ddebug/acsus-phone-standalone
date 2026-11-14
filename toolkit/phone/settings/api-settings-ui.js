@@ -418,14 +418,6 @@ function createAPISettingsHTML() {
           </div>
         </div>
       </div>
-
-      <!-- TODO占位 -->
-      <div class="api-settings-section" style="opacity: 0.5; pointer-events: none;">
-        <div class="api-settings-section-title">TODO: 多API配置</div>
-        <div class="api-settings-hint">
-          未来支持为聊天和说说使用不同的API配置
-        </div>
-      </div>
     </div>
   `;
 }

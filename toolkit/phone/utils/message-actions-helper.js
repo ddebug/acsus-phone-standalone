@@ -220,9 +220,6 @@ function createActionsMenu(message, contactId, messageElement, options = {}) {
     }));
   }
 
-  row1.appendChild(createActionButton('share', '转发', () => {
-    handleForward(message);
-  }));
   row1.appendChild(createActionButton('star', '收藏', async () => {
     await handleFavorite(message, contactId);
   }));
@@ -477,18 +474,6 @@ async function handleRecall(message, contactId, messageElement) {
   logger.info('phone','[MessageActions] 撤回消息成功:', message.id);
   const { showToast } = await import('../ui-components/toast-notification.js');
   showToast('已撤回', 'success');
-}
-
-/**
- * 处理转发消息（占位符）
- * 
- * @private
- * @param {Object} message - 消息对象
- */
-function handleForward(message) {
-  logger.info('phone','[MessageActions] 转发消息（占位符）:', message.content?.substring(0, 20));
-  closeMessageActions();
-  // TODO: 实现转发逻辑
 }
 
 /**

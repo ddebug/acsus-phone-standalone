@@ -51,16 +51,6 @@ export async function renderCharacterCustomizationPage(params) {
       <div class="character-customization-title">个性装扮</div>
     </div>
 
-    <div class="character-customization-tabs">
-      <button class="character-customization-tab active" data-tab="bubble">气泡</button>
-      <button class="character-customization-tab" data-tab="avatar">头像挂件</button>
-      <button class="character-customization-tab" data-tab="transfer">转账</button>
-      <button class="character-customization-tab" data-tab="gift-membership">赠送会员</button>
-      <button class="character-customization-tab" data-tab="plan">计划</button>
-      <button class="character-customization-tab" data-tab="plan-story">计划故事</button>
-      <button class="character-customization-tab" data-tab="signature">个签</button>
-    </div>
-
     <div class="character-customization-content">
       <div class="character-customization-tab-content active" data-content="bubble">
         <div class="character-customization-hint">
@@ -68,38 +58,11 @@ export async function renderCharacterCustomizationPage(params) {
         </div>
         <div class="character-customization-bubble-grid"></div>
       </div>
-
-      <div class="character-customization-tab-content" data-content="avatar" style="display: none;">
-        <div class="character-customization-empty">头像挂件功能开发中...</div>
-      </div>
-
-      <div class="character-customization-tab-content" data-content="transfer" style="display: none;">
-        <div class="character-customization-empty">转账样式功能开发中...</div>
-      </div>
-
-      <div class="character-customization-tab-content" data-content="gift-membership" style="display: none;">
-        <div class="character-customization-empty">赠送会员样式功能开发中...</div>
-      </div>
-
-      <div class="character-customization-tab-content" data-content="plan" style="display: none;">
-        <div class="character-customization-empty">计划样式功能开发中...</div>
-      </div>
-
-      <div class="character-customization-tab-content" data-content="plan-story" style="display: none;">
-        <div class="character-customization-empty">计划故事样式功能开发中...</div>
-      </div>
-
-      <div class="character-customization-tab-content" data-content="signature" style="display: none;">
-        <div class="character-customization-empty">个签样式功能开发中...</div>
-      </div>
     </div>
   `;
 
   // 绑定返回按钮
   bindBackButton(container);
-
-  // 绑定标签切换
-  bindTabSwitch(container);
 
   // 渲染气泡列表
   await renderBubbleGrid(container, contactId);
@@ -119,43 +82,6 @@ function bindBackButton(container) {
     const overlay = document.querySelector('.phone-overlay');
     import('../phone-main-ui.js').then(({ hidePage }) => {
       hidePage(overlay, 'character-customization');
-    });
-  });
-}
-
-/**
- * 绑定标签切换事件
- * @param {HTMLElement} container - 页面容器
- */
-function bindTabSwitch(container) {
-  const tabs = container.querySelectorAll('.character-customization-tab');
-  const contents = container.querySelectorAll('.character-customization-tab-content');
-  const contactId = container.dataset.contactId;
-
-  tabs.forEach(tab => {
-    tab.addEventListener('click', async () => {
-      const tabName = tab.dataset.tab;
-      logger.debug('phone',`[CharacterCustomization] 切换标签: ${tabName}`);
-
-      // 更新标签激活状态
-      tabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-
-      // 更新内容显示
-      contents.forEach(content => {
-        if (content.dataset.content === tabName) {
-          content.classList.add('active');
-          content.style.display = 'block';
-        } else {
-          content.classList.remove('active');
-          content.style.display = 'none';
-        }
-      });
-
-      // 只有气泡标签需要渲染列表
-      if (tabName === 'bubble') {
-        await renderBubbleGrid(container, contactId);
-      }
     });
   });
 }

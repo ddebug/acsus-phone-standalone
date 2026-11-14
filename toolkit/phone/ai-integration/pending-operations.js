@@ -3,7 +3,7 @@
  * @module phone/ai-integration/pending-operations
  * 
  * @description
- * 管理所有待发送的操作（消息、说说、好友申请等）
+ * 管理所有待发送的操作（消息、好友申请等）
  * 支持多联系人结构，方便后续扩展
  */
 
@@ -16,8 +16,6 @@ import logger from '../../../logger.js';
 const pendingOperations = {
   /** @type {Object<string, Array<Object>>} 联系人ID → 消息列表 */
   messages: {},
-  /** @type {Array<Object>} 待发布的说说 */
-  moments: [],
   /** @type {Array<Object>} 待处理的好友申请 */
   friendRequests: [],
   /** @type {Array<Object>} 用户个签操作记录 */
@@ -98,7 +96,6 @@ export function getPendingMessages(contactId) {
 export function getAllPendingOperations() {
   return {
     messages: { ...pendingOperations.messages },
-    moments: [...pendingOperations.moments],
     friendRequests: [...pendingOperations.friendRequests],
     signatureActions: [...pendingOperations.signatureActions]
   };
@@ -120,7 +117,6 @@ export function clearPendingMessages(contactId) {
  */
 export function clearAllPendingOperations() {
   pendingOperations.messages = {};
-  pendingOperations.moments = [];
   pendingOperations.friendRequests = [];
   pendingOperations.signatureActions = [];
   logger.debug('phone','[PendingOps] 清空所有待处理操作');
@@ -132,10 +128,9 @@ export function clearAllPendingOperations() {
  */
 export function hasPendingOperations() {
   const hasMessages = Object.keys(pendingOperations.messages).length > 0;
-  const hasMoments = pendingOperations.moments.length > 0;
   const hasRequests = pendingOperations.friendRequests.length > 0;
 
-  return hasMessages || hasMoments || hasRequests;
+  return hasMessages || hasRequests;
 }
 
 /**

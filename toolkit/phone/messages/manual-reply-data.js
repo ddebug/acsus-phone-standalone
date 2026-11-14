@@ -2,6 +2,7 @@
 import { extension_settings, saveSettingsDebounced, flushPhoneStorage, getStorageStatus } from '../../../standalone/phone-settings.js';
 import { loadContacts } from '../contacts/contact-list-data.js';
 import { splitCharacterExtras } from './character-extras-data.js';
+import { isManualReplyRoleName } from './manual-reply-role-names.js';
 import { buildManualProactiveState, trackManualProactiveSave, beginManualReplyWrite } from '../ai-integration/proactive-scheduler.js';
 import { getPhoneSystem } from '../phone-system.js';
 
@@ -13,6 +14,11 @@ const busy = () => Boolean(getPhoneSystem()?.api?.isGenerating || getPhoneSystem
 const ready = () => {
   const status = getStorageStatus();
   if (!status.ready || status.blocked || status.importing || status.error) throw new Error('手机存储尚未就绪；请先保留备份并处理存储提示。');
+};
+const preflightError = message => {
+  const error = new Error(message);
+  error.manualReplyPreflight = true;
+  return error;
 };
 const dateKey = time => {
   const value = new Date(time * 1000);
@@ -46,19 +52,40 @@ function extractText(raw, contact) {
     || /\b(?:proxy-authorization|authorization|x-(?:goog-)?api-key|api[_ -]?key)\b["']?\s*[:=]/i.test(text)) {
     throw new Error('这看起来是 API 日志或结构化数据。请只复制最终回复正文，不要复制请求、密钥或思考过程。');
   }
-  if (/\[(?:系统[:：\]]|操作-|空间动态|转账\]|红包\]|约定计划|好友申请\]|改个签\]|开会员\]|送会员\])/.test(text)) throw new Error('含有操作或非文字标签。请只复制普通聊天文字；这里不会执行转账、好友、计划等操作。');
   const roles = [...text.matchAll(/\[角色-([^\]]+)\]/g)];
   if (roles.length) {
-    if (roles.length !== 1 || ![contact.name, contact.id].includes(roles[0][1].trim())) throw new Error('只能补录当前角色的单份回复；请去除其他角色内容，或只粘贴当前角色的普通正文。');
+    const roleNames = [...new Set(roles.map(match => match[1].trim()).filter(Boolean))];
+    const otherNames = roleNames.filter(name => !isManualReplyRoleName(contact, name));
+    if (otherNames.length) {
+      const display = otherNames.slice(0, 4).join('、');
+      throw new Error(`只能补录当前角色的回复；日志中出现了其他角色（${display}）。请只复制当前角色的那一段，或只粘贴普通正文。`);
+    }
     const prefix = text.slice(0, roles[0].index).trim();
     if (prefix) throw new Error('角色标签前还有其他内容，请只复制最终回复。');
-    const body = text.slice(roles[0].index + roles[0][0].length);
-    const messageBlocks = [...body.matchAll(/\[消息\]([\s\S]*?)(?:\[\/消息\]|(?=\[\/角色-)|$)/g)];
-    if (!messageBlocks.length) throw new Error('未找到普通消息正文，请只复制消息里的文字。');
-    text = messageBlocks.map(match => match[1].trim()).filter(Boolean).join('\n');
-    warnings.push('普通角色/消息标签已去除；预览内容会保存为一条文字气泡。');
+    const bodies = roles.map((role, index) => text.slice(
+      role.index + role[0].length,
+      index + 1 < roles.length ? roles[index + 1].index : text.length,
+    ));
+    const messageBlocks = bodies.flatMap(body => [...body.matchAll(/\[消息\]([\s\S]*?)(?:\[\/消息\]|(?=\[\/角色-)|$)/g)]);
+    if (messageBlocks.length) {
+      text = messageBlocks.map(match => match[1].trim()).filter(Boolean).join('\n');
+      warnings.push('普通角色/消息标签已去除；预览内容会保存为一条文字气泡。');
+    } else {
+      // A log may omit [消息] while still carrying a role envelope. Keep the
+      // body when it is plain text; bare labels are rejected below.
+      text = bodies.map(body => body.replace(/\[\/角色-[^\]]*\]\s*$/, '').trim()).filter(Boolean).join('\n');
+      if (!text) throw new Error('未找到普通消息正文，请只复制消息里的文字。');
+      warnings.push('角色标签已去除；预览内容会保存为一条文字气泡。');
+    }
   } else {
     text = text.replace(/^\[消息\]([\s\S]*?)(?:\[\/消息\])?\s*$/, '$1').trim();
+  }
+  // Operations belong to the caller's response pipeline, not this text-only
+  // recovery. Ignore them when they sit outside a [消息] block, but never save
+  // them as chat text if they were placed inside the message body.
+  const operation = text.match(/\[(?:系统(?:[:：][^\]]*)?|操作-[^\]]*|空间动态|转账|红包|约定计划|好友申请|改个签|开会员|送会员)\]/);
+  if (operation) {
+    throw new Error(`含有操作或非文字标签“${operation[0]}”。请删除该标签后重新预览；这里不会执行转账、好友、计划等操作。`);
   }
   if (!text || text === '[不发]' || text.length > 32000) throw new Error('没有可补录的文字，或正文超过32000字符；[不发]不能补成角色消息。');
   if (/<\/?(?:think|thinking|analysis|reasoning|phone-extras)\b/i.test(text) || /\[\/?(?:角色-|消息\])/.test(text)) throw new Error('仍有未识别标签，请只保留普通文字后重新预览。');
@@ -118,19 +145,26 @@ async function publishManualReply(phone, contactId, messageId) {
 /** One immutable preview = one stable message ID. Unknown writes are not retried. */
 export function commitManualReply(preview, { allowDuplicate = false } = {}) {
   const plan = plans.get(preview);
-  if (!plan || plan.status !== 'ready') return Promise.reject(new Error('此预览已使用、正在保存或结果未确认；请勿重复补录。'));
+  if (!plan || plan.status !== 'ready') return Promise.reject(preflightError('此预览已使用、正在保存或结果未确认；请重新预览。'));
   plan.status = 'saving';
   const operation = saveQueue.then(async () => {
-    const endManualWrite = await beginManualReplyWrite();
+    let endManualWrite = () => {};
     try {
-    ready();
-    if (busy()) throw new Error('有聊天正在生成，未补录。');
-    if (phoneData() !== plan.phone) throw new Error('手机数据已更换，请重新预览。');
+      endManualWrite = await beginManualReplyWrite();
+    } catch (error) {
+      error.manualReplyPreflight = true;
+      throw error;
+    }
+    try {
+    try { ready(); } catch (error) { error.manualReplyPreflight = true; throw error; }
+    if (busy()) throw preflightError('有聊天正在生成，未补录。');
+    if (phoneData() !== plan.phone) throw preflightError('手机数据已更换，请重新预览。');
     const phone = plan.phone;
     const contact = (await loadContacts()).find(item => item.id === preview.contactId);
-    if (!contact || contact.name !== plan.contactName) throw new Error('联系人已变化，请重新预览。');
-    if (phoneData() !== phone) throw new Error('手机数据已更换，未补录。');
-    const old = historyOf(phone, preview.contactId);
+    if (!contact || contact.name !== plan.contactName) throw preflightError('联系人已变化，请重新预览。');
+    if (phoneData() !== phone) throw preflightError('手机数据已更换，未补录。');
+    let old;
+    try { old = historyOf(phone, preview.contactId); } catch (error) { error.manualReplyPreflight = true; throw error; }
     const sameText = old.findLast(message => message.sender === 'contact' && message.type === 'text' && String(message.content || '').trim() === preview.text);
     const exact = old.findLast(message => message.sender === 'contact' && message.type === 'text'
       && String(message.content || '').trim() === preview.text && Number(message.time) === preview.time);
@@ -142,7 +176,7 @@ export function commitManualReply(preview, { allowDuplicate = false } = {}) {
       const displayed = exact.id ? await publishManualReply(phone, preview.contactId, exact.id) : false;
       return { message: exact, alreadyExists: true, displayPending: !displayed };
     }
-    if (sameText && !allowDuplicate) throw new Error('已有相同文字，请重新预览并确认是否真的需要另一条。');
+    if (sameText && !allowDuplicate) throw preflightError('已有相同文字，请重新预览并确认是否真的需要另一条。');
     const message = { id: plan.id, apiCallId: plan.id, sender: 'contact', type: 'text', content: preview.text, time: preview.time, manualRecovered: true };
     if (preview.proactive) { message.proactive = true; message.proactiveRequestId = plan.id; }
     const index = old.findIndex(item => Number.isFinite(Number(item.time)) && Number(item.time) > message.time);
@@ -150,19 +184,40 @@ export function commitManualReply(preview, { allowDuplicate = false } = {}) {
     const next = [...old.slice(0, at), message, ...old.slice(at)];
     const chats = phone.chats || {};
     const shadow = { ...phone, chats: { ...chats, [`chat_${preview.contactId}`]: next } };
-    const nextState = preview.proactive ? buildManualProactiveState(shadow, preview.contactId, message) : null;
+    let nextState;
+    try { nextState = preview.proactive ? buildManualProactiveState(shadow, preview.contactId, message) : null; }
+    catch (error) { error.manualReplyPreflight = true; throw error; }
+    const previousState = phone.proactiveState;
     phone.chats = shadow.chats;
     if (nextState) phone.proactiveState = nextState;
     const finishTracking = nextState ? trackManualProactiveSave(plan.id) : () => {};
     try {
-      const pending = saveSettingsDebounced();
-      await Promise.all([pending, flushPhoneStorage()]);
+      let pending;
+      try { pending = saveSettingsDebounced(); }
+      catch (error) {
+        if (error?.code === 'NOT_READY' || error?.code === 'IMPORT_BUSY') error.manualReplyPreflight = true;
+        throw error;
+      }
+      try {
+        await Promise.all([pending, flushPhoneStorage()]);
+      } catch (error) {
+        if (error?.code === 'NOT_READY' || error?.code === 'IMPORT_BUSY') error.manualReplyPreflight = true;
+        throw error;
+      }
       if (phoneData() !== phone || phone.chats?.[`chat_${preview.contactId}`] !== next || !next.some(item => item.id === message.id)) throw new Error('保存期间数据已更换，补录结果未确认。');
       plan.status = 'saved';
       finishTracking();
       const displayed = await publishManualReply(phone, preview.contactId, message.id);
       return { message, alreadyExists: false, displayPending: !displayed };
     } catch (error) {
+      if (error?.manualReplyPreflight) {
+        // Nothing was written. Restore only our own in-memory insertion so a
+        // later unrelated save cannot persist a reply the UI reported as failed.
+        if (phone.chats?.[`chat_${preview.contactId}`] === next) phone.chats[`chat_${preview.contactId}`] = old;
+        if (nextState && phone.proactiveState === nextState) phone.proactiveState = previousState;
+        plan.status = 'failed';
+        throw error;
+      }
       // Keep the reply available for in-memory backup; never append it again.
       plan.status = 'unconfirmed';
       const marker = nextState?.contacts?.[preview.contactId];

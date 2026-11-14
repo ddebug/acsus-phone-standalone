@@ -2,7 +2,7 @@
  * 存储空间页面 UI 渲染
  * 
  * @description
- * 存储空间管理入口页面，包含图片管理、语音管理、视频管理
+ * 存储空间管理入口页面，当前提供图片管理
  * 
  * @module phone/storage/storage-space-ui
  */
@@ -41,26 +41,6 @@ export async function renderStorageSpace() {
                 <div class="storage-item-content">
                     <span class="storage-item-text">图片管理</span>
                     <span class="storage-item-desc">管理拍照发送的图片</span>
-                </div>
-                <i class="fa-solid fa-chevron-right storage-item-arrow"></i>
-            </div>
-
-            <!-- 语音管理（占位符） -->
-            <div class="storage-item storage-item-disabled">
-                <i class="fa-solid fa-microphone storage-item-icon"></i>
-                <div class="storage-item-content">
-                    <span class="storage-item-text">语音管理</span>
-                    <span class="storage-item-desc">即将推出</span>
-                </div>
-                <i class="fa-solid fa-chevron-right storage-item-arrow"></i>
-            </div>
-
-            <!-- 视频管理（占位符） -->
-            <div class="storage-item storage-item-disabled">
-                <i class="fa-solid fa-video storage-item-icon"></i>
-                <div class="storage-item-content">
-                    <span class="storage-item-text">视频管理</span>
-                    <span class="storage-item-desc">即将推出</span>
                 </div>
                 <i class="fa-solid fa-chevron-right storage-item-arrow"></i>
             </div>

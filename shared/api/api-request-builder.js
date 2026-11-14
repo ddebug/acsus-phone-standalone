@@ -8,6 +8,7 @@ import { resolveSource, supportsIndependentKey } from './api-config-schema.js';
 import logger from '../../logger.js';
 
 const GPT_SOURCES = new Set(['openai', 'azure_openai', 'openrouter']);
+const REASONING_EFFORT_VALUES = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 const SEED_SUPPORTED_SOURCES = new Set([
     'openai',
     'azure_openai',
@@ -50,6 +51,24 @@ const TOOLS_SUPPORTED_SOURCES = new Set([
     'chutes',
     'electronhub',
 ]);
+
+/**
+ * Normalizes reasoning effort to values accepted by OpenAI-compatible APIs.
+ *
+ * ST presets commonly store UI values like `auto` / `min` / `max`; forwarding
+ * them verbatim makes strict providers reject the whole request.
+ *
+ * @param {*} value - Raw reasoning effort from config or preset.
+ * @returns {string|undefined} Valid effort, or undefined to omit the field.
+ */
+function normalizeReasoningEffort(value) {
+    if (typeof value !== 'string') return undefined;
+    const effort = value.trim().toLowerCase();
+    if (!effort || effort === 'auto' || effort === 'default') return undefined;
+    if (effort === 'min' || effort === 'minimum') return 'minimal';
+    if (effort === 'maximum') return 'max';
+    return REASONING_EFFORT_VALUES.has(effort) ? effort : undefined;
+}
 
 /**
  * Returns true when the source behaves as OpenAI-family models.
@@ -149,6 +168,7 @@ export function normalizeRequestParams(source, model, params) {
         normalized.tools = undefined;
         normalized.tool_choice = undefined;
     }
+    normalized.reasoning_effort = normalizeReasoningEffort(normalized.reasoning_effort);
 
     if (isGptSource(source) && /gpt.*vision/i.test(model)) {
         normalized.stop = undefined;

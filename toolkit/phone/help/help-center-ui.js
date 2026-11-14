@@ -53,11 +53,6 @@ export async function renderHelpCenter() {
             <span class="phone-settings-item-text">宏变量使用教程</span>
             <i class="fa-solid fa-chevron-right phone-settings-item-arrow"></i>
           </div>
-          <div class="phone-settings-item" data-action="placeholder-4">
-            <i class="fa-solid fa-4"></i>
-            <span class="phone-settings-item-text">教程占位符 4</span>
-            <i class="fa-solid fa-chevron-right phone-settings-item-arrow"></i>
-          </div>
         </div>
       </div>
     </div>
@@ -138,11 +133,6 @@ async function handleItemClick(action) {
       // 跳转到宏变量使用教程页
       const { showPage: showMacroPage } = await import('../phone-main-ui.js');
       await showMacroPage(overlayElement, 'macro-guide-detail', {});
-      break;
-
-    case 'placeholder-4':
-      // 占位符，暂无操作
-      logger.debug('phone','[HelpCenter] 占位符，暂无操作');
       break;
 
     default:
